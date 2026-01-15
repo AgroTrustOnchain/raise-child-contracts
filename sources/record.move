@@ -11,7 +11,7 @@ public struct TransactionRecord has key {
     actor_address: address,
     action_type: String,
     message: String,
-    amount: u64,
+    amount: u128,
     coin_type: String,
     created_at: u64,
 }
@@ -21,7 +21,7 @@ public struct TransactionRecordEvent has copy, drop {
     actor_address: address,
     action_type: String,
     message: String,
-    amount: u64,
+    amount: u128,
     coin_type: String,
     created_at: u64,
 }
@@ -76,8 +76,8 @@ public struct TransactionRecordEvent has copy, drop {
 //     transfer::transfer(record, ctx.sender());
 // }
 
-public fun create_tx_record(
-    amount: u64,
+public(package) fun create_tx_record(
+    amount: u128,
     coin_type: String,
     action_type: String,
     message: String,
@@ -109,5 +109,5 @@ public fun create_tx_record(
         created_at: cur_time,
     });
 
-    transfer::transfer(record, ctx.sender());
+    transfer::transfer(record, actor);
 }
