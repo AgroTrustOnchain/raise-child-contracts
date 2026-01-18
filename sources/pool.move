@@ -7,9 +7,15 @@ use raise_child::manage::{
     is_withdraw_requestor_valid
 };
 use raise_child::record::create_tx_record;
-use raise_child::sponsor::{mint_sponsor_nft, SponsorNFT, get_sponsor_donate_amount};
+use raise_child::sponsor::{
+    mint_sponsor_nft,
+    SponsorNFT,
+    get_sponsor_donate_amount,
+    update_donation_after_donate
+};
 use raise_child::vnd::VND;
 use std::string::{Self, String};
+use std::vector::push_back;
 use sui::balance::{Self, Balance};
 use sui::clock::{Self, Clock};
 use sui::coin::{Self, TreasuryCap};
@@ -36,6 +42,7 @@ public struct VndPool has key {
     id: UID,
     admin: address,
     balance: Balance<VND>,
+    local_pools: vector<ID>,
     withdraw_proposals: vector<ID>,
     mods: vector<address>,
     total_amount: u128,
@@ -67,6 +74,10 @@ public struct WithDrawProposal has key {
     refuse_reasons: vector<String>,
     is_executed: bool,
     is_from_local_pool: bool,
+    approved_periods: vector<u64>,
+    refused_periods: vector<u64>,
+    created_at: u64,
+    updated_at: u64,
     closed_at: u64,
 }
 
@@ -75,6 +86,7 @@ fun init(ctx: &mut TxContext) {
         id: object::new(ctx),
         admin: ctx.sender(),
         balance: balance::zero<VND>(),
+        local_pools: vector[],
         withdraw_proposals: vector[],
         mods: vector[],
         total_amount: 0,
@@ -118,25 +130,74 @@ public fun donate_to_pool(
     };
 
     let vnd = coin::mint(treausury_cap, (amount as u64), ctx);
+    update_donation_after_donate(sponsor, amount, ctx);
     balance::join(&mut pool.balance, coin::into_balance(vnd));
     pool.total_amount = pool.total_amount + amount;
 
     let coin_type: String = b"VND".to_string();
     let action_type: String = b"Donate".to_string();
-    create_tx_record(amount, coin_type, action_type, message, clock, ctx);
+    create_tx_record(amount, coin_type, action_type, b"Main Pool".to_string(), message, clock, ctx);
 }
 
-public(package) fun create_local_pool(region: String, ctx: &mut TxContext) {
-    transfer::share_object(LocalPool {
+public fun donate_to_local_pool(
+    manage: &mut Manage,
+    pool: &mut VndPool,
+    local_pool: &mut LocalPool,
+    treausury_cap: &mut TreasuryCap<VND>,
+    sponsor: &mut SponsorNFT,
+    amount: u128,
+    first_name: String,
+    last_name: String,
+    gender: String,
+    phone_number: String,
+    email: String,
+    message: String,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    assert!(amount > 0, ENegativeAmount);
+
+    if (!is_sponsor_added(manage, ctx)) {
+        mint_sponsor_nft(
+            manage,
+            first_name,
+            last_name,
+            gender,
+            phone_number,
+            email,
+            amount,
+            ctx,
+        );
+        add_sponsor_to_manage(manage, ctx);
+    } else {
+        update_donation_after_donate(sponsor, amount, ctx);
+    };
+
+    let vnd = coin::mint(treausury_cap, (amount as u64), ctx);
+    balance::join(&mut pool.balance, coin::into_balance(vnd));
+    pool.total_amount = pool.total_amount + amount;
+    local_pool.total_amount = local_pool.total_amount + amount;
+
+    let coin_type: String = b"VND".to_string();
+    let action_type: String = b"Donate".to_string();
+    create_tx_record(amount, coin_type, action_type, local_pool.region, message, clock, ctx);
+}
+
+public(package) fun create_local_pool(pool: &mut VndPool, region: String, ctx: &mut TxContext) {
+    let local_pool = LocalPool {
         id: object::new(ctx),
         region: region,
         mods: vector[ctx.sender()],
         total_amount: 0,
-    })
+    };
+
+    vector::push_back(&mut pool.local_pools, local_pool.id.to_inner());
+    transfer::share_object(local_pool);
 }
 
 // public fun withdraw_from_pool();
 public fun withdraw_from_pool(
+    manage: &mut Manage,
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
     proposal: &mut WithDrawProposal,
@@ -145,23 +206,29 @@ public fun withdraw_from_pool(
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
-    assert!(proposal.closed_at < clock::timestamp_ms(clock), EWithdrawProposalStillPending);
+    let cur_time = clock::timestamp_ms(clock);
+    assert!(proposal.closed_at <= cur_time, EWithdrawProposalStillPending);
     assert!(
         calculate_aprroval_ratio(proposal) >= dao.min_approved_rate,
         EProposalApproveRateNotPass,
     );
     assert!(!proposal.is_executed, EWithdrawProposalExecuted);
 
+    let pool_name: String;
     if (proposal.is_from_local_pool) {
         assert!(proposal.pool_id == local_pool.id.to_inner(), ENotMatchedPoolInWithdraw);
         local_pool.total_amount = local_pool.total_amount - proposal.withdraw_amount;
+        pool_name = local_pool.region;
+    } else {
+        pool_name = b"Main Pool".to_string();
     };
 
-    proposal.is_executed = true;
     let withdraw_amount_u64 = (proposal.withdraw_amount as u64);
     let coin = coin::from_balance(balance::split(&mut pool.balance, withdraw_amount_u64), ctx);
     pool.total_amount = pool.total_amount - proposal.withdraw_amount;
     transfer::public_transfer(coin, proposal.creator);
+    proposal.is_executed = true;
+    proposal.updated_at = cur_time;
 
     let coin_type: String = b"VND".to_string();
     let action_type: String = b"Withdraw".to_string();
@@ -169,6 +236,7 @@ public fun withdraw_from_pool(
         proposal.withdraw_amount,
         coin_type,
         action_type,
+        pool_name,
         proposal.description,
         clock,
         ctx,
@@ -187,7 +255,9 @@ public fun create_withdraw_proposal(
     ctx: &mut TxContext,
 ) {
     assert!(is_withdraw_requestor_valid(manage, ctx), EInvalidWithdrawRequester);
-    assert!(closed_at > clock::timestamp_ms(clock), EPassPeriod);
+
+    let cur_time = clock::timestamp_ms(clock);
+    assert!(closed_at > cur_time, EPassPeriod);
     assert!(withdraw_amount > WITHDRAW_MIN_AMOUNT, EInsufficientAmount);
     assert!(withdraw_amount <= WITHDRAW_LIMIT_AMOUNT, EInsufficientAmount);
 
@@ -217,6 +287,10 @@ public fun create_withdraw_proposal(
         refuse_weight: 0,
         is_executed: false,
         is_from_local_pool: is_from_local_pool,
+        approved_periods: vector[],
+        refused_periods: vector[],
+        created_at: cur_time,
+        updated_at: cur_time,
         closed_at: closed_at,
     };
 
@@ -246,12 +320,16 @@ public fun vote_withdraw_proposal(
 
     if (is_approve) {
         vector::push_back(&mut proposal.approvers, sender);
-        proposal.approve_weight = proposal.approve_weight + get_sponsor_donate_amount(sponsor);
+        proposal.approve_weight = proposal.approve_weight + get_sponsor_donate_amount(sponsor, ctx);
+        vector::push_back(&mut proposal.approved_periods, cur_time);
     } else {
         vector::push_back(&mut proposal.refusers, sender);
-        proposal.refuse_weight = proposal.refuse_weight + get_sponsor_donate_amount(sponsor);
+        proposal.refuse_weight = proposal.refuse_weight + get_sponsor_donate_amount(sponsor, ctx);
         vector::push_back(&mut proposal.refuse_reasons, refuse_reason);
+        vector::push_back(&mut proposal.refused_periods, cur_time);
     };
+
+    proposal.updated_at = cur_time;
 }
 
 fun calculate_aprroval_ratio(proposal: &mut WithDrawProposal): u128 {

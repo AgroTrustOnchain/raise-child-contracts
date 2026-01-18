@@ -48,6 +48,14 @@ public(package) fun mint_sponsor_nft(
     }
 }
 
-public(package) fun get_sponsor_donate_amount(sponsor: &mut SponsorNFT): u128 {
+public(package) fun update_donation_after_donate(
+    sponsor: &mut SponsorNFT,
+    amount: u128,
+    ctx: &mut TxContext,
+) {
+    sponsor.total_donation = sponsor.total_donation + amount;
+}
+
+public(package) fun get_sponsor_donate_amount(sponsor: &mut SponsorNFT, ctx: &mut TxContext): u128 {
     sponsor.total_donation
 }

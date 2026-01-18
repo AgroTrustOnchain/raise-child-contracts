@@ -7,7 +7,7 @@ use raise_child::manage::{
     is_local_region_added,
     is_leader_added
 };
-use raise_child::pool::create_local_pool;
+use raise_child::pool::{VndPool, create_local_pool};
 use std::string::{Self, String, utf8};
 use sui::clock::{Self, Clock};
 use sui::url::{Url, new_unsafe_from_bytes};
@@ -44,6 +44,7 @@ public struct StaffNFT has key {
 
 public fun register_staff(
     manage: &mut Manage,
+    pool: &mut VndPool,
     identity_code: String,
     identity_card_blob_id: String,
     role: String,
@@ -96,7 +97,7 @@ public fun register_staff(
     };
 
     if (role == leader_role) {
-        create_local_pool(region, ctx);
+        create_local_pool(pool, region, ctx);
     };
 
     transfer::transfer(staff, user);

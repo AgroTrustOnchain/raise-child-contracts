@@ -69,6 +69,10 @@ public(package) fun is_local_region_added(manage: &mut Manage, region: String): 
     found
 }
 
+// public(package) fun is_admin_existed(manage: &mut Manage, ctx: &mut TxContext): bool {
+//     manage.admin == ctx.sender()
+// }
+
 public(package) fun add_sponsor_to_manage(manage: &mut Manage, ctx: &mut TxContext) {
     assert!(!is_sponsor_added(manage, ctx), ESponsorExisted);
     vector::push_back(&mut manage.sponsor_ids, ctx.sender());
