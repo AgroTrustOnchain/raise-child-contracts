@@ -5,10 +5,12 @@ use raise_child::manage::{
     add_volunteer_to_manage,
     add_local_leader_to_manage,
     is_local_region_added,
-    is_leader_added
+    is_leader_added,
+    mint_admin_nft
 };
 use raise_child::pool::{VndPool, create_local_pool};
 use std::string::{Self, String, utf8};
+use std::u128::to_string;
 use sui::clock::{Self, Clock};
 use sui::url::{Url, new_unsafe_from_bytes};
 
@@ -25,6 +27,7 @@ public struct StaffNFT has key {
     first_name: String,
     last_name: String,
     gender: String,
+    date_of_birth: String,
     phone_number: String,
     email: String,
     uploaded_at: u64,
@@ -53,11 +56,30 @@ public fun register_staff(
     first_name: String,
     last_name: String,
     gender: String,
+    date_of_birth: String,
     phone_number: String,
     email: String,
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
+    if (role == b"Admin".to_string()) {
+        mint_admin_nft(
+            manage,
+            identity_code,
+            identity_card_blob_id,
+            avatar_blob_id,
+            first_name,
+            last_name,
+            gender,
+            date_of_birth,
+            phone_number,
+            email,
+            clock,
+            ctx,
+        );
+        return
+    };
+
     let staff_id = object::new(ctx);
     let volunteer_role = b"Volunteer".to_string();
     let leader_role = b"Local Leader".to_string();
@@ -87,6 +109,7 @@ public fun register_staff(
         first_name: first_name,
         last_name: last_name,
         gender: gender,
+        date_of_birth: date_of_birth,
         phone_number: phone_number,
         email: email,
         uploaded_at: clock::timestamp_ms(clock),
@@ -101,18 +124,4 @@ public fun register_staff(
     };
 
     transfer::transfer(staff, user);
-
-    // let nft = StaffNFT {
-    //     id: object::new(ctx),
-    //     identity_code: identity_code,
-    //     role: role,
-    //     first_name: first_name,
-    //     last_name: last_name,
-    //     name: name_bytes.to_string(),
-    //     url: new_unsafe_from_bytes(
-    //         url_bytes,
-    //     ),
-    // };
-
-    // transfer::transfer(nft, user);
 }

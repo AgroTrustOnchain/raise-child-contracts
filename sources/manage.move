@@ -6,6 +6,7 @@ use sui::clock::{Self, Clock};
 use sui::coin::{Self, Coin};
 use sui::sui::SUI;
 use sui::transfer::{Self, public_transfer};
+use sui::url::{Url, new_unsafe_from_bytes};
 
 const ENotAuthorized: u64 = 1;
 const EZeroAmount: u64 = 2;
@@ -14,10 +15,13 @@ const ESponsorExisted: u64 = 4;
 const ELeaderExisted: u64 = 5;
 const ERegionExisted: u64 = 6;
 const EVolunteerExisted: u64 = 7;
+const EMissingAdminInfo: u64 = 8;
+const EAdminExisted: u64 = 9;
 
 public struct Manage has key {
     id: UID,
-    admin: address,
+    admin_nfts: vector<ID>,
+    admin_ids: vector<address>,
     child_ids: vector<ID>,
     volunteer_nfts: vector<ID>,
     volunteer_ids: vector<address>,
@@ -28,10 +32,53 @@ public struct Manage has key {
     sponsor_ids: vector<address>,
 }
 
+public struct AdminNFT has key {
+    id: UID,
+    owner: address,
+    identity_code: String,
+    identity_card_blob_id: String,
+    avatar_blob_id: String,
+    first_name: String,
+    last_name: String,
+    gender: String,
+    date_of_birth: String,
+    phone_number: String,
+    email: String,
+    uploaded_at: u64,
+    name: String,
+    url: Url,
+}
+
+public struct UpdateAdminInfoAfterPublishCap has key {
+    id: UID,
+}
+
 fun init(ctx: &mut TxContext) {
+    let sender = ctx.sender();
+    let empty = b"Empty".to_string();
+    let nft = AdminNFT {
+        id: object::new(ctx),
+        owner: sender,
+        identity_code: empty,
+        identity_card_blob_id: empty,
+        avatar_blob_id: empty,
+        first_name: empty,
+        last_name: empty,
+        gender: empty,
+        date_of_birth: empty,
+        phone_number: empty,
+        email: empty,
+        uploaded_at: 0,
+        name: get_admin_nft_name(),
+        url: new_unsafe_from_bytes(
+            get_admin_nft_url_bytes(),
+        ),
+    };
+
     let manage = Manage {
         id: object::new(ctx),
-        admin: ctx.sender(),
+        admin_ids: vector[sender],
+        admin_nfts: vector[nft.id.to_inner()],
         child_ids: vector[],
         volunteer_nfts: vector[],
         volunteer_ids: vector[],
@@ -42,11 +89,106 @@ fun init(ctx: &mut TxContext) {
         sponsor_ids: vector[],
     };
 
+    transfer::transfer(nft, sender);
+    transfer::transfer(
+        UpdateAdminInfoAfterPublishCap {
+            id: object::new(ctx),
+        },
+        sender,
+    );
     transfer::share_object(manage);
 }
 
+public fun update_publisher_nft(
+    cap: UpdateAdminInfoAfterPublishCap,
+    manage: &mut Manage,
+    nft: &mut AdminNFT,
+    identity_code: String,
+    identity_card_blob_id: String,
+    avatar_blob_id: String,
+    first_name: String,
+    last_name: String,
+    gender: String,
+    date_of_birth: String,
+    phone_number: String,
+    email: String,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    let empty = b"Empty".to_string();
+    assert!(
+        identity_code != empty && identity_card_blob_id != empty && avatar_blob_id != empty && first_name != empty && last_name != empty && gender != empty && phone_number != empty && email != empty && date_of_birth != empty,
+        EMissingAdminInfo,
+    );
+
+    let sender = ctx.sender();
+    nft.owner = sender;
+    nft.identity_code = identity_code;
+    nft.identity_card_blob_id = identity_card_blob_id;
+    nft.avatar_blob_id = avatar_blob_id;
+    nft.first_name = first_name;
+    nft.last_name = last_name;
+    nft.gender = gender;
+    nft.date_of_birth = date_of_birth;
+    nft.phone_number = phone_number;
+    nft.email = email;
+    nft.uploaded_at = clock::timestamp_ms(clock);
+    *manage.admin_ids.borrow_mut(0) = sender;
+
+    let UpdateAdminInfoAfterPublishCap { id } = cap;
+    object::delete(id);
+}
+
+public(package) fun mint_admin_nft(
+    manage: &mut Manage,
+    identity_code: String,
+    identity_card_blob_id: String,
+    avatar_blob_id: String,
+    first_name: String,
+    last_name: String,
+    gender: String,
+    date_of_birth: String,
+    phone_number: String,
+    email: String,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    assert!(!is_admin_added(manage, ctx), EAdminExisted);
+
+    let empty = b"".to_string();
+    assert!(
+        identity_code != empty && identity_card_blob_id != empty && avatar_blob_id != empty && first_name != empty && last_name != empty && gender != empty && phone_number != empty && email != empty && date_of_birth != empty,
+        EMissingAdminInfo,
+    );
+
+    let sender = ctx.sender();
+    let nft = AdminNFT {
+        id: object::new(ctx),
+        owner: sender,
+        identity_code: identity_code,
+        identity_card_blob_id: identity_card_blob_id,
+        avatar_blob_id: avatar_blob_id,
+        first_name: first_name,
+        last_name: last_name,
+        gender: gender,
+        date_of_birth: date_of_birth,
+        phone_number: phone_number,
+        email: email,
+        uploaded_at: clock::timestamp_ms(clock),
+        name: get_admin_nft_name(),
+        url: new_unsafe_from_bytes(
+            get_admin_nft_url_bytes(),
+        ),
+    };
+
+    vector::push_back(&mut manage.admin_ids, sender);
+    vector::push_back(&mut manage.admin_nfts, nft.id.to_inner());
+    transfer::transfer(nft, sender);
+}
+
 public(package) fun is_withdraw_requestor_valid(manage: &mut Manage, ctx: &mut TxContext): bool {
-    ctx.sender() == manage.admin || is_sponsor_added(manage, ctx) || is_leader_added(manage, ctx) || is_volunteer_added(manage, ctx)
+    let (found, _) = vector::index_of(&mut manage.admin_ids, &ctx.sender());
+    found || is_sponsor_added(manage, ctx) || is_leader_added(manage, ctx) || is_volunteer_added(manage, ctx)
 }
 
 public(package) fun is_sponsor_added(manage: &mut Manage, ctx: &mut TxContext): bool {
@@ -69,9 +211,18 @@ public(package) fun is_local_region_added(manage: &mut Manage, region: String): 
     found
 }
 
-// public(package) fun is_admin_existed(manage: &mut Manage, ctx: &mut TxContext): bool {
-//     manage.admin == ctx.sender()
-// }
+fun is_admin_added(manage: &mut Manage, ctx: &mut TxContext): bool {
+    let (found, _) = vector::index_of(&mut manage.admin_ids, &ctx.sender());
+    found
+}
+
+fun get_admin_nft_name(): String {
+    b"RaiseChild Admin NFT".to_string()
+}
+
+fun get_admin_nft_url_bytes(): vector<u8> {
+    b"some-link"
+}
 
 public(package) fun add_sponsor_to_manage(manage: &mut Manage, ctx: &mut TxContext) {
     assert!(!is_sponsor_added(manage, ctx), ESponsorExisted);
