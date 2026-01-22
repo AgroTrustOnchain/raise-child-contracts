@@ -1,6 +1,7 @@
 module raise_child::manage;
 
 use std::string::String;
+use std::vector::push_back;
 use sui::balance::{Self, Balance};
 use sui::clock::{Self, Clock};
 use sui::coin::{Self, Coin};
@@ -28,6 +29,7 @@ public struct Manage has key {
     local_leader_nfts: vector<ID>,
     local_leader_ids: vector<address>,
     local_regions: vector<String>,
+    children_centers: vector<ID>,
     sponsor_nfts: vector<ID>,
     sponsor_ids: vector<address>,
 }
@@ -49,7 +51,23 @@ public struct AdminNFT has key {
     url: Url,
 }
 
-public struct UpdateAdminInfoAfterPublishCap has key {
+public struct UpdateAdminInfoAfterPublishCap has key, store {
+    id: UID,
+}
+
+public struct AdminCap has key, store {
+    id: UID,
+}
+
+public struct RegisterVolunteerCap has key {
+    id: UID,
+}
+
+public struct RegisterLocalLeaderCap has key {
+    id: UID,
+}
+
+public struct RegisterAdminCap has key {
     id: UID,
 }
 
@@ -85,6 +103,7 @@ fun init(ctx: &mut TxContext) {
         local_leader_nfts: vector[],
         local_leader_ids: vector[],
         local_regions: vector[],
+        children_centers: vector[],
         sponsor_nfts: vector[],
         sponsor_ids: vector[],
     };
@@ -96,7 +115,20 @@ fun init(ctx: &mut TxContext) {
         },
         sender,
     );
+    transfer::transfer(AdminCap { id: object::new(ctx) }, sender);
     transfer::share_object(manage);
+}
+
+public fun mint_register_volunteer_cap(_: &AdminCap, recipient: address, ctx: &mut TxContext) {
+    transfer::transfer(RegisterVolunteerCap { id: object::new(ctx) }, recipient);
+}
+
+public fun mint_register_local_leader_cap(_: &AdminCap, recipient: address, ctx: &mut TxContext) {
+    transfer::transfer(RegisterLocalLeaderCap { id: object::new(ctx) }, recipient);
+}
+
+public fun mint_register_admin_cap(_: &AdminCap, recipient: address, ctx: &mut TxContext) {
+    transfer::transfer(RegisterAdminCap { id: object::new(ctx) }, recipient);
 }
 
 public fun update_publisher_nft(
@@ -186,6 +218,24 @@ public(package) fun mint_admin_nft(
     transfer::transfer(nft, sender);
 }
 
+public(package) fun burn_register_admin_cap(cap: RegisterAdminCap, ctx: &mut TxContext) {
+    let RegisterAdminCap { id } = cap;
+    object::delete(id);
+}
+
+public(package) fun burn_register_volunteer_cap(cap: RegisterVolunteerCap, ctx: &mut TxContext) {
+    let RegisterVolunteerCap { id } = cap;
+    object::delete(id);
+}
+
+public(package) fun burn_register_local_leader_cap(
+    cap: RegisterLocalLeaderCap,
+    ctx: &mut TxContext,
+) {
+    let RegisterLocalLeaderCap { id } = cap;
+    object::delete(id);
+}
+
 public(package) fun is_withdraw_requestor_valid(manage: &mut Manage, ctx: &mut TxContext): bool {
     let (found, _) = vector::index_of(&mut manage.admin_ids, &ctx.sender());
     found || is_sponsor_added(manage, ctx) || is_leader_added(manage, ctx) || is_volunteer_added(manage, ctx)
@@ -211,6 +261,17 @@ public(package) fun is_local_region_added(manage: &mut Manage, region: String): 
     found
 }
 
+public(package) fun is_create_children_center_requestor_valid(
+    manage: &mut Manage,
+    region: String,
+    ctx: &mut TxContext,
+): bool {
+    let (region_found, region_idx) = vector::index_of(&mut manage.local_regions, &region);
+    let (leader_found, leader_idx) = vector::index_of(&mut manage.local_leader_ids, &ctx.sender());
+
+    region_found && leader_found && region_idx == leader_idx
+}
+
 fun is_admin_added(manage: &mut Manage, ctx: &mut TxContext): bool {
     let (found, _) = vector::index_of(&mut manage.admin_ids, &ctx.sender());
     found
@@ -222,6 +283,14 @@ fun get_admin_nft_name(): String {
 
 fun get_admin_nft_url_bytes(): vector<u8> {
     b"some-link"
+}
+
+public(package) fun add_children_center_to_manage(
+    manage: &mut Manage,
+    id: ID,
+    ctx: &mut TxContext,
+) {
+    vector::push_back(&mut manage.children_centers, id);
 }
 
 public(package) fun add_sponsor_to_manage(manage: &mut Manage, ctx: &mut TxContext) {

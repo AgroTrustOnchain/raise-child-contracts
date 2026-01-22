@@ -1,6 +1,12 @@
 module raise_child::child;
 
-use raise_child::manage::{add_child_to_manage, Manage};
+use raise_child::manage::{
+    add_child_to_manage,
+    add_children_center_to_manage,
+    is_create_children_center_requestor_valid,
+    RegisterLocalLeaderCap,
+    Manage
+};
 use std::string::String;
 use sui::clock::{Self, Clock};
 use sui::dynamic_field::{Self as df, Self};
@@ -8,6 +14,7 @@ use sui::event::emit;
 
 const EFieldExisted: u64 = 1;
 const EFieldNotExisted: u64 = 2;
+const ECenterMissingInfo: u64 = 3;
 
 // Thêm 1 struct liên kết với sự hỗ trợ từ nhà tự thiện
 // Có thêm thông tin tần suất cập nhật hình ảnh
@@ -24,8 +31,97 @@ public struct Child has key {
     image_blob_ids: vector<String>,
     upload_image_periods: vector<u64>,
     dynamic_fields: vector<String>,
+    gifts: vector<ID>,
+    uploaded_by: address,
     uploaded_at: u64,
     updated_at: u64,
+}
+
+public struct ChildrenCenter has key {
+    id: UID,
+    region: String,
+    center_address: String,
+    center_phone_number: String,
+    image_blob_ids: vector<String>,
+    uploaded_at: u64,
+    updated_at: u64,
+}
+
+public(package) fun create_children_center(
+    manage: &mut Manage,
+    region: String,
+    center_address: String,
+    center_phone_number: String,
+    image_blob_id: String,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    let empty = b"".to_string();
+    assert!(
+        region != empty && center_address != empty && image_blob_id != empty && center_phone_number != empty,
+        ECenterMissingInfo,
+    );
+
+    if (is_create_children_center_requestor_valid(manage, region, ctx)) {
+        let cur_time = clock::timestamp_ms(clock);
+        let center = ChildrenCenter {
+            id: object::new(ctx),
+            region: region,
+            center_address: center_address,
+            center_phone_number: center_phone_number,
+            image_blob_ids: vector[image_blob_id],
+            uploaded_at: cur_time,
+            updated_at: cur_time,
+        };
+
+        add_children_center_to_manage(manage, center.id.to_inner(), ctx);
+        transfer::share_object(center);
+    }
+}
+
+public fun upload_center_image(
+    manage: &mut Manage,
+    center: &mut ChildrenCenter,
+    image_blob_id: String,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    if (is_create_children_center_requestor_valid(manage, center.region, ctx)) {
+        if (image_blob_id != b"".to_string()) {
+            vector::push_back(&mut center.image_blob_ids, image_blob_id);
+            center.updated_at = clock::timestamp_ms(clock);
+        }
+    }
+}
+
+public fun upload_center_address(
+    manage: &mut Manage,
+    center: &mut ChildrenCenter,
+    center_address: String,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    if (is_create_children_center_requestor_valid(manage, center.region, ctx)) {
+        if (center_address != b"".to_string()) {
+            center.center_address = center_address;
+            center.updated_at = clock::timestamp_ms(clock);
+        }
+    }
+}
+
+public fun upload_center_phone_number(
+    manage: &mut Manage,
+    center: &mut ChildrenCenter,
+    center_phone_number: String,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    if (is_create_children_center_requestor_valid(manage, center.region, ctx)) {
+        if (center_phone_number != b"".to_string()) {
+            center.center_phone_number = center_phone_number;
+            center.updated_at = clock::timestamp_ms(clock);
+        }
+    }
 }
 
 public fun add_child(
@@ -54,6 +150,8 @@ public fun add_child(
         image_blob_ids: vector[],
         upload_image_periods: vector[],
         dynamic_fields: vector[],
+        gifts: vector[],
+        uploaded_by: ctx.sender(),
         uploaded_at: cur_time,
         updated_at: cur_time,
     };
@@ -151,4 +249,16 @@ public fun remove_u64_metadata(child: &mut Child, key: String, clock: &Clock, ct
     let cur_time = clock::timestamp_ms(clock);
     vector::remove(&mut child.dynamic_fields, idx);
     child.updated_at = cur_time;
+}
+
+public(package) fun add_gift(child: &mut Child, id: ID) {
+    vector::push_back(&mut child.gifts, id);
+}
+
+public(package) fun get_child_inner_id(child: &Child): ID {
+    child.id.to_inner()
+}
+
+public(package) fun get_child_region(child: &Child): String {
+    child.region
 }

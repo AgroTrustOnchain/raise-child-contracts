@@ -1,12 +1,19 @@
 module raise_child::staff;
 
+use raise_child::child::create_children_center;
 use raise_child::manage::{
     Manage,
     add_volunteer_to_manage,
     add_local_leader_to_manage,
     is_local_region_added,
     is_leader_added,
-    mint_admin_nft
+    mint_admin_nft,
+    burn_register_volunteer_cap,
+    burn_register_local_leader_cap,
+    burn_register_admin_cap,
+    RegisterVolunteerCap,
+    RegisterLocalLeaderCap,
+    RegisterAdminCap
 };
 use raise_child::pool::{VndPool, create_local_pool};
 use std::string::{Self, String, utf8};
@@ -15,6 +22,8 @@ use sui::clock::{Self, Clock};
 use sui::url::{Url, new_unsafe_from_bytes};
 
 const ERegionAdded: u64 = 1;
+const ERegionNotExist: u64 = 2;
+const EStaffMissingInfo: u64 = 3;
 
 public struct StaffNFT has key {
     id: UID,
@@ -35,15 +44,37 @@ public struct StaffNFT has key {
     url: Url,
 }
 
-// public struct StaffNFT has key {
-//     id: UID,
-//     identity_code: String,
-//     role: String,
-//     first_name: String,
-//     last_name: String,
-//     name: String,
-//     url: Url,
-// }
+fun is_staff_info_enough(
+    identity_code: String,
+    identity_card_blob_id: String,
+    avatar_blob_id: String,
+    region: String,
+    first_name: String,
+    last_name: String,
+    gender: String,
+    date_of_birth: String,
+    phone_number: String,
+    email: String,
+): bool {
+    let empty = b"".to_string();
+    identity_code != empty && identity_card_blob_id != empty && avatar_blob_id != empty && 
+    region != empty && first_name != empty && last_name != empty && gender != empty &&
+    date_of_birth != empty && phone_number != empty && email != empty
+}
+
+fun get_role(is_staff: bool): String {
+    let role_bytes = if (is_staff) b"Staff" else b"Local Leader";
+    role_bytes.to_string()
+}
+
+fun get_nft_name(is_staff: bool): String {
+    let name_bytes = if (is_staff) b"RaiseChild Staff NFT" else b"RaiseChiild Local Leader NFT";
+    name_bytes.to_string()
+}
+
+fun get_nft_url_bytes(is_staff: bool): vector<u8> {
+    if (is_staff) b"some-link" else b"some-link"
+}
 
 public fun register_staff(
     manage: &mut Manage,
@@ -121,7 +152,176 @@ public fun register_staff(
 
     if (role == leader_role) {
         create_local_pool(pool, region, ctx);
+        //create_children_center(manage, region, )
     };
 
     transfer::transfer(staff, user);
+}
+
+public fun register_admin(
+    manage: &mut Manage,
+    cap: RegisterAdminCap,
+    identity_code: String,
+    identity_card_blob_id: String,
+    avatar_blob_id: String,
+    first_name: String,
+    last_name: String,
+    gender: String,
+    date_of_birth: String,
+    phone_number: String,
+    email: String,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    mint_admin_nft(
+        manage,
+        identity_code,
+        identity_card_blob_id,
+        avatar_blob_id,
+        first_name,
+        last_name,
+        gender,
+        date_of_birth,
+        phone_number,
+        email,
+        clock,
+        ctx,
+    );
+
+    burn_register_admin_cap(cap, ctx);
+}
+
+public fun register_volunteer(
+    manage: &mut Manage,
+    cap: RegisterVolunteerCap,
+    identity_code: String,
+    identity_card_blob_id: String,
+    avatar_blob_id: String,
+    region: String,
+    first_name: String,
+    last_name: String,
+    gender: String,
+    date_of_birth: String,
+    phone_number: String,
+    email: String,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    assert!(
+        is_staff_info_enough(
+            identity_code,
+            identity_card_blob_id,
+            avatar_blob_id,
+            region,
+            first_name,
+            last_name,
+            gender,
+            date_of_birth,
+            phone_number,
+            email,
+        ),
+        EStaffMissingInfo,
+    );
+    assert!(is_local_region_added(manage, region), ERegionNotExist);
+
+    let sender = ctx.sender();
+    let nft = StaffNFT {
+        id: object::new(ctx),
+        owner: sender,
+        role: get_role(true),
+        identity_code: identity_code,
+        identity_card_blob_id: identity_card_blob_id,
+        avatar_blob_id: avatar_blob_id,
+        region: region,
+        first_name: first_name,
+        last_name: last_name,
+        gender: gender,
+        date_of_birth: date_of_birth,
+        phone_number: phone_number,
+        email: email,
+        uploaded_at: clock::timestamp_ms(clock),
+        name: get_nft_name(true),
+        url: new_unsafe_from_bytes(
+            get_nft_url_bytes(true),
+        ),
+    };
+
+    add_volunteer_to_manage(manage, nft.id.to_inner(), ctx);
+    transfer::transfer(nft, sender);
+    burn_register_volunteer_cap(cap, ctx);
+}
+
+public fun register_local_leader(
+    manage: &mut Manage,
+    cap: RegisterLocalLeaderCap,
+    identity_code: String,
+    identity_card_blob_id: String,
+    avatar_blob_id: String,
+    region: String,
+    first_name: String,
+    last_name: String,
+    gender: String,
+    date_of_birth: String,
+    phone_number: String,
+    email: String,
+    center_address: String,
+    center_phone_number: String,
+    center_image_blob_id: String,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    assert!(
+        is_staff_info_enough(
+            identity_code,
+            identity_card_blob_id,
+            avatar_blob_id,
+            region,
+            first_name,
+            last_name,
+            gender,
+            date_of_birth,
+            phone_number,
+            email,
+        ),
+        EStaffMissingInfo,
+    );
+
+    let sender = ctx.sender();
+    let nft = StaffNFT {
+        id: object::new(ctx),
+        owner: sender,
+        role: get_role(false),
+        identity_code: identity_code,
+        identity_card_blob_id: identity_card_blob_id,
+        avatar_blob_id: avatar_blob_id,
+        region: region,
+        first_name: first_name,
+        last_name: last_name,
+        gender: gender,
+        date_of_birth: date_of_birth,
+        phone_number: phone_number,
+        email: email,
+        uploaded_at: clock::timestamp_ms(clock),
+        name: get_nft_name(false),
+        url: new_unsafe_from_bytes(
+            get_nft_url_bytes(false),
+        ),
+    };
+
+    add_local_leader_to_manage(manage, nft.id.to_inner(), region, ctx);
+    transfer::transfer(nft, sender);
+    create_children_center(
+        manage,
+        region,
+        center_address,
+        center_phone_number,
+        center_image_blob_id,
+        clock,
+        ctx,
+    );
+    burn_register_local_leader_cap(cap, ctx);
+}
+
+public(package) fun is_staff_matched_region(staff: &StaffNFT, region: String): bool {
+    staff.region == region
 }
