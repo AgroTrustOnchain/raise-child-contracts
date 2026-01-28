@@ -1,6 +1,6 @@
 module raise_child::sponsor;
 
-use raise_child::manage::{Manage, is_sponsor_added};
+use raise_child::manage::{Manage, is_sponsor_added, is_sponsor_added_v2};
 use std::string::{Self, String, utf8};
 use sui::url::{Url, new_unsafe_from_bytes};
 
@@ -17,6 +17,22 @@ public struct SponsorNFT has key {
     total_donation: u128,
     name: String,
     url: Url,
+}
+
+fun init(ctx: &mut TxContext) {
+    let empty = b"".to_string();
+    transfer::share_object(SponsorNFT {
+        id: object::new(ctx),
+        owner: ctx.sender(),
+        first_name: empty,
+        last_name: empty,
+        gender: empty,
+        phone_number: empty,
+        email: empty,
+        total_donation: 0,
+        name: b"RaiseChild Sponsor NFT".to_string(),
+        url: new_unsafe_from_bytes(b"some-link"),
+    });
 }
 
 public(package) fun mint_sponsor_nft(
@@ -45,6 +61,35 @@ public(package) fun mint_sponsor_nft(
         };
 
         transfer::transfer(nft, ctx.sender());
+    }
+}
+
+public(package) fun mint_sponsor_nft_v2(
+    manage: &mut Manage,
+    first_name: String,
+    last_name: String,
+    gender: String,
+    phone_number: String,
+    email: String,
+    amount: u128,
+    owner: address,
+    ctx: &mut TxContext,
+) {
+    if (!is_sponsor_added_v2(manage, owner)) {
+        let nft = SponsorNFT {
+            id: object::new(ctx),
+            owner: owner,
+            first_name: first_name,
+            last_name: last_name,
+            gender: gender,
+            phone_number: phone_number,
+            email: email,
+            total_donation: amount,
+            name: b"RaiseChild Sponsor NFT".to_string(),
+            url: new_unsafe_from_bytes(b"some-link"),
+        };
+
+        transfer::transfer(nft, owner);
     }
 }
 

@@ -5,6 +5,8 @@ use raise_child::manage::{
     Manage,
     add_volunteer_to_manage,
     add_local_leader_to_manage,
+    add_children_center_to_manage,
+    add_temporary_children_center,
     is_local_region_added,
     is_leader_added,
     mint_admin_nft,
@@ -264,9 +266,6 @@ public fun register_local_leader(
     date_of_birth: String,
     phone_number: String,
     email: String,
-    center_address: String,
-    center_phone_number: String,
-    center_image_blob_id: String,
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
@@ -310,15 +309,10 @@ public fun register_local_leader(
 
     add_local_leader_to_manage(manage, nft.id.to_inner(), region, ctx);
     transfer::transfer(nft, sender);
-    create_children_center(
-        manage,
-        region,
-        center_address,
-        center_phone_number,
-        center_image_blob_id,
-        clock,
-        ctx,
-    );
+    if (!is_local_region_added(manage, region)) {
+        add_temporary_children_center(manage, region, ctx);
+    };
+
     burn_register_local_leader_cap(cap, ctx);
 }
 

@@ -18,6 +18,7 @@ const ERegionExisted: u64 = 6;
 const EVolunteerExisted: u64 = 7;
 const EMissingAdminInfo: u64 = 8;
 const EAdminExisted: u64 = 9;
+const EInvalidAddCenter: u64 = 10;
 
 public struct Manage has key {
     id: UID,
@@ -30,6 +31,8 @@ public struct Manage has key {
     local_leader_ids: vector<address>,
     local_regions: vector<String>,
     children_centers: vector<ID>,
+    center_confirm_statuses: vector<bool>,
+    created_centers: vector<ID>,
     sponsor_nfts: vector<ID>,
     sponsor_ids: vector<address>,
 }
@@ -64,6 +67,10 @@ public struct RegisterVolunteerCap has key {
 }
 
 public struct RegisterLocalLeaderCap has key {
+    id: UID,
+}
+
+public struct UploadCenterCap has key {
     id: UID,
 }
 
@@ -104,6 +111,8 @@ fun init(ctx: &mut TxContext) {
         local_leader_ids: vector[],
         local_regions: vector[],
         children_centers: vector[],
+        center_confirm_statuses: vector[],
+        created_centers: vector[],
         sponsor_nfts: vector[],
         sponsor_ids: vector[],
     };
@@ -115,6 +124,7 @@ fun init(ctx: &mut TxContext) {
         },
         sender,
     );
+    transfer::transfer(AdminCap { id: object::new(ctx) }, sender);
     transfer::transfer(AdminCap { id: object::new(ctx) }, sender);
     transfer::share_object(manage);
 }
@@ -129,6 +139,10 @@ public fun mint_register_local_leader_cap(_: &AdminCap, recipient: address, ctx:
 
 public fun mint_register_admin_cap(_: &AdminCap, recipient: address, ctx: &mut TxContext) {
     transfer::transfer(RegisterAdminCap { id: object::new(ctx) }, recipient);
+}
+
+public fun mint_upload_center_cap(_: &AdminCap, recipient: address, ctx: &mut TxContext) {
+    transfer::transfer(UploadCenterCap { id: object::new(ctx) }, recipient);
 }
 
 public fun update_publisher_nft(
@@ -236,6 +250,11 @@ public(package) fun burn_register_local_leader_cap(
     object::delete(id);
 }
 
+public(package) fun burn_upload_center_cap(cap: UploadCenterCap, ctx: &mut TxContext) {
+    let UploadCenterCap { id } = cap;
+    object::delete(id);
+}
+
 public(package) fun is_withdraw_requestor_valid(manage: &mut Manage, ctx: &mut TxContext): bool {
     let (found, _) = vector::index_of(&mut manage.admin_ids, &ctx.sender());
     found || is_sponsor_added(manage, ctx) || is_leader_added(manage, ctx) || is_volunteer_added(manage, ctx)
@@ -243,6 +262,11 @@ public(package) fun is_withdraw_requestor_valid(manage: &mut Manage, ctx: &mut T
 
 public(package) fun is_sponsor_added(manage: &mut Manage, ctx: &mut TxContext): bool {
     let (found, _) = vector::index_of(&mut manage.sponsor_ids, &ctx.sender());
+    found
+}
+
+public(package) fun is_sponsor_added_v2(manage: &mut Manage, sender: address): bool {
+    let (found, _) = vector::index_of(&mut manage.sponsor_ids, &sender);
     found
 }
 
@@ -268,8 +292,9 @@ public(package) fun is_create_children_center_requestor_valid(
 ): bool {
     let (region_found, region_idx) = vector::index_of(&mut manage.local_regions, &region);
     let (leader_found, leader_idx) = vector::index_of(&mut manage.local_leader_ids, &ctx.sender());
+    let status_ref = vector::borrow(&mut manage.center_confirm_statuses, region_idx);
 
-    region_found && leader_found && region_idx == leader_idx
+    region_found && leader_found && region_idx == leader_idx && !*status_ref
 }
 
 fun is_admin_added(manage: &mut Manage, ctx: &mut TxContext): bool {
@@ -285,17 +310,45 @@ fun get_admin_nft_url_bytes(): vector<u8> {
     b"some-link"
 }
 
+public(package) fun add_temporary_children_center(
+    manage: &mut Manage,
+    region: String,
+    ctx: &mut TxContext,
+) {
+    let uid = object::new(ctx);
+    vector::push_back(&mut manage.children_centers, uid.to_inner());
+    vector::push_back(&mut manage.center_confirm_statuses, false);
+    object::delete(uid);
+}
+
 public(package) fun add_children_center_to_manage(
     manage: &mut Manage,
+    cap: UploadCenterCap,
+    region: String,
     id: ID,
     ctx: &mut TxContext,
 ) {
-    vector::push_back(&mut manage.children_centers, id);
+    let (found_region, region_idx) = vector::index_of(&mut manage.local_regions, &region);
+    let status_ref = vector::borrow_mut(&mut manage.center_confirm_statuses, region_idx);
+    assert!(found_region && *status_ref, EInvalidAddCenter);
+
+    let center_ref = vector::borrow_mut(&mut manage.children_centers, region_idx);
+    *center_ref = id;
+    *status_ref = true;
+    vector::push_back(&mut manage.created_centers, id);
+
+    let UploadCenterCap { id: cap_id } = cap;
+    object::delete(cap_id);
 }
 
 public(package) fun add_sponsor_to_manage(manage: &mut Manage, ctx: &mut TxContext) {
     assert!(!is_sponsor_added(manage, ctx), ESponsorExisted);
     vector::push_back(&mut manage.sponsor_ids, ctx.sender());
+}
+
+public(package) fun add_sponsor_to_manage_v2(manage: &mut Manage, sender: address) {
+    assert!(!is_sponsor_added_v2(manage, sender), ESponsorExisted);
+    vector::push_back(&mut manage.sponsor_ids, sender);
 }
 
 public(package) fun add_child_to_manage(manage: &mut Manage, id: ID, ctx: &mut TxContext) {

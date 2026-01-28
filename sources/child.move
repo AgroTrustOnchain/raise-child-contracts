@@ -5,6 +5,7 @@ use raise_child::manage::{
     add_children_center_to_manage,
     is_create_children_center_requestor_valid,
     RegisterLocalLeaderCap,
+    UploadCenterCap,
     Manage
 };
 use std::string::String;
@@ -15,6 +16,7 @@ use sui::event::emit;
 const EFieldExisted: u64 = 1;
 const EFieldNotExisted: u64 = 2;
 const ECenterMissingInfo: u64 = 3;
+const EInvalidAddCenter: u64 = 4;
 
 // Thêm 1 struct liên kết với sự hỗ trợ từ nhà tự thiện
 // Có thêm thông tin tần suất cập nhật hình ảnh
@@ -47,8 +49,9 @@ public struct ChildrenCenter has key {
     updated_at: u64,
 }
 
-public(package) fun create_children_center(
+public fun create_children_center(
     manage: &mut Manage,
+    cap: UploadCenterCap,
     region: String,
     center_address: String,
     center_phone_number: String,
@@ -62,21 +65,21 @@ public(package) fun create_children_center(
         ECenterMissingInfo,
     );
 
-    if (is_create_children_center_requestor_valid(manage, region, ctx)) {
-        let cur_time = clock::timestamp_ms(clock);
-        let center = ChildrenCenter {
-            id: object::new(ctx),
-            region: region,
-            center_address: center_address,
-            center_phone_number: center_phone_number,
-            image_blob_ids: vector[image_blob_id],
-            uploaded_at: cur_time,
-            updated_at: cur_time,
-        };
+    assert!(is_create_children_center_requestor_valid(manage, region, ctx), EInvalidAddCenter);
 
-        add_children_center_to_manage(manage, center.id.to_inner(), ctx);
-        transfer::share_object(center);
-    }
+    let cur_time = clock::timestamp_ms(clock);
+    let center = ChildrenCenter {
+        id: object::new(ctx),
+        region: region,
+        center_address: center_address,
+        center_phone_number: center_phone_number,
+        image_blob_ids: vector[image_blob_id],
+        uploaded_at: cur_time,
+        updated_at: cur_time,
+    };
+
+    add_children_center_to_manage(manage, cap, region, center.id.to_inner(), ctx);
+    transfer::share_object(center);
 }
 
 public fun upload_center_image(
