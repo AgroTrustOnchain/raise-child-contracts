@@ -72,25 +72,25 @@ public(package) fun mint_sponsor_nft_v2(
     phone_number: String,
     email: String,
     amount: u128,
-    owner: address,
     ctx: &mut TxContext,
-) {
-    if (!is_sponsor_added_v2(manage, owner)) {
-        let nft = SponsorNFT {
-            id: object::new(ctx),
-            owner: owner,
-            first_name: first_name,
-            last_name: last_name,
-            gender: gender,
-            phone_number: phone_number,
-            email: email,
-            total_donation: amount,
-            name: b"RaiseChild Sponsor NFT".to_string(),
-            url: new_unsafe_from_bytes(b"some-link"),
-        };
+): ID {
+    let owner = ctx.sender();
+    let nft = SponsorNFT {
+        id: object::new(ctx),
+        owner: owner,
+        first_name: first_name,
+        last_name: last_name,
+        gender: gender,
+        phone_number: phone_number,
+        email: email,
+        total_donation: amount,
+        name: b"RaiseChild Sponsor NFT".to_string(),
+        url: new_unsafe_from_bytes(b"some-link"),
+    };
 
-        transfer::transfer(nft, owner);
-    }
+    let id = nft.id.to_inner();
+    transfer::transfer(nft, owner);
+    id
 }
 
 public(package) fun update_donation_after_donate(
@@ -103,4 +103,8 @@ public(package) fun update_donation_after_donate(
 
 public(package) fun get_sponsor_donate_amount(sponsor: &mut SponsorNFT, ctx: &mut TxContext): u128 {
     sponsor.total_donation
+}
+
+public(package) fun get_sponsor_id(sponsor: &mut SponsorNFT): ID {
+    sponsor.id.to_inner()
 }

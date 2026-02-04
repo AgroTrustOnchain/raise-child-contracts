@@ -8,6 +8,7 @@ use raise_child::manage::{
     add_children_center_to_manage,
     add_temporary_children_center,
     is_local_region_added,
+    is_center_status_created,
     is_leader_added,
     mint_admin_nft,
     burn_register_volunteer_cap,
@@ -15,9 +16,10 @@ use raise_child::manage::{
     burn_register_admin_cap,
     RegisterVolunteerCap,
     RegisterLocalLeaderCap,
-    RegisterAdminCap
+    RegisterAdminCap,
+    UploadCenterCap
 };
-use raise_child::pool::{VndPool, create_local_pool};
+use raise_child::pool::{VndPool, LocalPool, create_local_pool, add_leader_to_pool};
 use std::string::{Self, String, utf8};
 use std::u128::to_string;
 use sui::clock::{Self, Clock};
@@ -152,10 +154,7 @@ public fun register_staff(
         ),
     };
 
-    if (role == leader_role) {
-        create_local_pool(pool, region, ctx);
-        //create_children_center(manage, region, )
-    };
+    if (role == leader_role) {};
 
     transfer::transfer(staff, user);
 }
@@ -256,6 +255,7 @@ public fun register_volunteer(
 public fun register_local_leader(
     manage: &mut Manage,
     cap: RegisterLocalLeaderCap,
+    pool: &mut LocalPool,
     identity_code: String,
     identity_card_blob_id: String,
     avatar_blob_id: String,
@@ -311,6 +311,10 @@ public fun register_local_leader(
     transfer::transfer(nft, sender);
     if (!is_local_region_added(manage, region)) {
         add_temporary_children_center(manage, region, ctx);
+    } else {
+        if (is_center_status_created(manage, region)) {
+            add_leader_to_pool(pool, ctx);
+        };
     };
 
     burn_register_local_leader_cap(cap, ctx);

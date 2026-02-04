@@ -124,6 +124,47 @@ public(package) fun create_tx_record_v2(
     pool_name: String,
     message: String,
     clock: &Clock,
+    ctx: &mut TxContext,
+): ID {
+    assert!(amount > 0, ENegativeAmount);
+
+    let cur_time = clock::timestamp_ms(clock);
+    let owner = ctx.sender();
+    let record = TransactionRecord {
+        id: object::new(ctx),
+        actor_address: owner,
+        action_type: action_type,
+        pool_name: pool_name,
+        amount: amount,
+        coin_type: coin_type,
+        message: message,
+        created_at: cur_time,
+    };
+
+    let id = record.id.to_inner();
+
+    event::emit(TransactionRecordEvent {
+        id: id,
+        actor_address: owner,
+        action_type: action_type,
+        pool_name: pool_name,
+        amount: amount,
+        coin_type: coin_type,
+        message: message,
+        created_at: cur_time,
+    });
+
+    transfer::transfer(record, owner);
+    id
+}
+
+public(package) fun create_tx_record_with_address(
+    amount: u128,
+    coin_type: String,
+    action_type: String,
+    pool_name: String,
+    message: String,
+    clock: &Clock,
     owner: address,
     ctx: &mut TxContext,
 ) {
@@ -153,4 +194,45 @@ public(package) fun create_tx_record_v2(
     });
 
     transfer::transfer(record, owner);
+}
+
+public(package) fun create_tx_record_with_address_v2(
+    amount: u128,
+    coin_type: String,
+    action_type: String,
+    pool_name: String,
+    message: String,
+    clock: &Clock,
+    owner: address,
+    ctx: &mut TxContext,
+): ID {
+    assert!(amount > 0, ENegativeAmount);
+
+    let cur_time = clock::timestamp_ms(clock);
+    let record = TransactionRecord {
+        id: object::new(ctx),
+        actor_address: owner,
+        action_type: action_type,
+        pool_name: pool_name,
+        amount: amount,
+        coin_type: coin_type,
+        message: message,
+        created_at: cur_time,
+    };
+
+    let id = record.id.to_inner();
+
+    event::emit(TransactionRecordEvent {
+        id: id,
+        actor_address: owner,
+        action_type: action_type,
+        pool_name: pool_name,
+        amount: amount,
+        coin_type: coin_type,
+        message: message,
+        created_at: cur_time,
+    });
+
+    transfer::transfer(record, owner);
+    id
 }

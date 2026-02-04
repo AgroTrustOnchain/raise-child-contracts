@@ -8,13 +8,8 @@ use raise_child::manage::{
     add_sponsor_to_manage,
     add_sponsor_to_manage_v2
 };
-use raise_child::record::{create_tx_record, create_tx_record_v2};
-use raise_child::sponsor::{
-    SponsorNFT,
-    mint_sponsor_nft,
-    mint_sponsor_nft_v2,
-    update_donation_after_donate
-};
+use raise_child::record::create_tx_record;
+use raise_child::sponsor::{SponsorNFT, mint_sponsor_nft, update_donation_after_donate};
 use raise_child::staff::{StaffNFT, is_staff_matched_region};
 use std::string::String;
 use sui::clock::{Self, Clock};

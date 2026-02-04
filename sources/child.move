@@ -8,6 +8,19 @@ use raise_child::manage::{
     UploadCenterCap,
     Manage
 };
+use raise_child::need::{
+    BooksNeed,
+    MealNeed,
+    init_books_need,
+    init_meal_need,
+    get_books_need_id,
+    get_meal_need_id,
+    support_books_need,
+    support_meal_need
+};
+use raise_child::pool::{VndPool, LocalPool, create_local_pool, get_local_pool_region};
+use raise_child::sponsor::SponsorNFT;
+use std::ascii::index_of;
 use std::string::String;
 use sui::clock::{Self, Clock};
 use sui::dynamic_field::{Self as df, Self};
@@ -17,6 +30,8 @@ const EFieldExisted: u64 = 1;
 const EFieldNotExisted: u64 = 2;
 const ECenterMissingInfo: u64 = 3;
 const EInvalidAddCenter: u64 = 4;
+const EChildNotMatchedRegion: u64 = 5;
+const ENeedNotExist: u64 = 6;
 
 // Thêm 1 struct liên kết với sự hỗ trợ từ nhà tự thiện
 // Có thêm thông tin tần suất cập nhật hình ảnh
@@ -33,6 +48,8 @@ public struct Child has key {
     image_blob_ids: vector<String>,
     upload_image_periods: vector<u64>,
     dynamic_fields: vector<String>,
+    book_needs: vector<ID>,
+    meal_need: ID,
     gifts: vector<ID>,
     uploaded_by: address,
     uploaded_at: u64,
@@ -51,11 +68,13 @@ public struct ChildrenCenter has key {
 
 public fun create_children_center(
     manage: &mut Manage,
+    pool: &mut VndPool,
     cap: UploadCenterCap,
     region: String,
     center_address: String,
     center_phone_number: String,
     image_blob_id: String,
+    leaders: vector<address>,
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
@@ -79,6 +98,7 @@ public fun create_children_center(
     };
 
     add_children_center_to_manage(manage, cap, region, center.id.to_inner(), ctx);
+    create_local_pool(pool, region, leaders, ctx);
     transfer::share_object(center);
 }
 
@@ -136,6 +156,7 @@ public fun add_child(
     date_of_birth: String,
     region: String,
     avatar_blob_id: String,
+    year: u64,
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
@@ -154,6 +175,8 @@ public fun add_child(
         upload_image_periods: vector[],
         dynamic_fields: vector[],
         gifts: vector[],
+        book_needs: vector[init_books_need(1, year, ctx), init_books_need(2, year, ctx)],
+        meal_need: init_meal_need(year, ctx),
         uploaded_by: ctx.sender(),
         uploaded_at: cur_time,
         updated_at: cur_time,
@@ -252,6 +275,88 @@ public fun remove_u64_metadata(child: &mut Child, key: String, clock: &Clock, ct
     let cur_time = clock::timestamp_ms(clock);
     vector::remove(&mut child.dynamic_fields, idx);
     child.updated_at = cur_time;
+}
+
+public fun support_child_books_need(
+    need: &mut BooksNeed,
+    manage: &mut Manage,
+    pool: &mut VndPool,
+    local_pool: &mut LocalPool,
+    child: &mut Child,
+    sponsor: &mut SponsorNFT,
+    amount: u128,
+    first_name: String,
+    last_name: String,
+    gender: String,
+    phone_number: String,
+    email: String,
+    message: String,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    assert!(child.region == get_local_pool_region(local_pool), EChildNotMatchedRegion);
+
+    let (found, _) = vector::index_of(&mut child.book_needs, &get_books_need_id(need));
+    assert!(found, ENeedNotExist);
+    support_books_need(
+        need,
+        manage,
+        pool,
+        local_pool,
+        sponsor,
+        amount,
+        first_name,
+        last_name,
+        gender,
+        phone_number,
+        email,
+        message,
+        clock,
+        ctx,
+    );
+}
+
+public fun support_child_meal_need(
+    need: &mut MealNeed,
+    manage: &mut Manage,
+    pool: &mut VndPool,
+    local_pool: &mut LocalPool,
+    child: &mut Child,
+    sponsor: &mut SponsorNFT,
+    amount: u128,
+    start_period: String,
+    end_period: String,
+    first_name: String,
+    last_name: String,
+    gender: String,
+    phone_number: String,
+    email: String,
+    message: String,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    assert!(child.region == get_local_pool_region(local_pool), EChildNotMatchedRegion);
+
+    let (found, _) = vector::index_of(&mut child.book_needs, &get_meal_need_id(need));
+    assert!(found, ENeedNotExist);
+    support_meal_need(
+        need,
+        manage,
+        pool,
+        local_pool,
+        sponsor,
+        amount,
+        start_period,
+        end_period,
+        first_name,
+        last_name,
+        gender,
+        phone_number,
+        email,
+        message,
+        clock,
+        ctx,
+    );
 }
 
 public(package) fun add_gift(child: &mut Child, id: ID) {

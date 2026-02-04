@@ -54,11 +54,11 @@ public struct AdminNFT has key {
     url: Url,
 }
 
-public struct UpdateAdminInfoAfterPublishCap has key, store {
+public struct UpdateAdminInfoAfterPublishCap has key {
     id: UID,
 }
 
-public struct AdminCap has key, store {
+public struct AdminCap has key {
     id: UID,
 }
 
@@ -102,8 +102,8 @@ fun init(ctx: &mut TxContext) {
 
     let manage = Manage {
         id: object::new(ctx),
-        admin_ids: vector[sender],
-        admin_nfts: vector[nft.id.to_inner()],
+        admin_ids: vector[],
+        admin_nfts: vector[],
         child_ids: vector[],
         volunteer_nfts: vector[],
         volunteer_ids: vector[],
@@ -129,25 +129,24 @@ fun init(ctx: &mut TxContext) {
     transfer::share_object(manage);
 }
 
-public fun mint_register_volunteer_cap(_: &AdminCap, recipient: address, ctx: &mut TxContext) {
-    transfer::transfer(RegisterVolunteerCap { id: object::new(ctx) }, recipient);
-}
+public entry fun transfer_original_info(
+    manage: &mut Manage,
+    admin_cap: AdminCap,
+    edit_cap: UpdateAdminInfoAfterPublishCap,
+    mut nft: AdminNFT,
+    recipient: address,
+) {
+    nft.owner = recipient;
+    vector::push_back(&mut manage.admin_nfts, nft.id.to_inner());
+    vector::push_back(&mut manage.admin_ids, recipient);
 
-public fun mint_register_local_leader_cap(_: &AdminCap, recipient: address, ctx: &mut TxContext) {
-    transfer::transfer(RegisterLocalLeaderCap { id: object::new(ctx) }, recipient);
-}
-
-public fun mint_register_admin_cap(_: &AdminCap, recipient: address, ctx: &mut TxContext) {
-    transfer::transfer(RegisterAdminCap { id: object::new(ctx) }, recipient);
-}
-
-public fun mint_upload_center_cap(_: &AdminCap, recipient: address, ctx: &mut TxContext) {
-    transfer::transfer(UploadCenterCap { id: object::new(ctx) }, recipient);
+    transfer::transfer(nft, recipient);
+    transfer::transfer(edit_cap, recipient);
+    transfer::transfer(admin_cap, recipient);
 }
 
 public fun update_publisher_nft(
     cap: UpdateAdminInfoAfterPublishCap,
-    manage: &mut Manage,
     nft: &mut AdminNFT,
     identity_code: String,
     identity_card_blob_id: String,
@@ -167,8 +166,6 @@ public fun update_publisher_nft(
         EMissingAdminInfo,
     );
 
-    let sender = ctx.sender();
-    nft.owner = sender;
     nft.identity_code = identity_code;
     nft.identity_card_blob_id = identity_card_blob_id;
     nft.avatar_blob_id = avatar_blob_id;
@@ -179,10 +176,25 @@ public fun update_publisher_nft(
     nft.phone_number = phone_number;
     nft.email = email;
     nft.uploaded_at = clock::timestamp_ms(clock);
-    *manage.admin_ids.borrow_mut(0) = sender;
 
     let UpdateAdminInfoAfterPublishCap { id } = cap;
     object::delete(id);
+}
+
+public fun mint_register_volunteer_cap(_: &AdminCap, recipient: address, ctx: &mut TxContext) {
+    transfer::transfer(RegisterVolunteerCap { id: object::new(ctx) }, recipient);
+}
+
+public fun mint_register_local_leader_cap(_: &AdminCap, recipient: address, ctx: &mut TxContext) {
+    transfer::transfer(RegisterLocalLeaderCap { id: object::new(ctx) }, recipient);
+}
+
+public fun mint_register_admin_cap(_: &AdminCap, recipient: address, ctx: &mut TxContext) {
+    transfer::transfer(RegisterAdminCap { id: object::new(ctx) }, recipient);
+}
+
+public fun mint_upload_center_cap(_: &AdminCap, recipient: address, ctx: &mut TxContext) {
+    transfer::transfer(UploadCenterCap { id: object::new(ctx) }, recipient);
 }
 
 public(package) fun mint_admin_nft(
@@ -285,6 +297,15 @@ public(package) fun is_local_region_added(manage: &mut Manage, region: String): 
     found
 }
 
+public(package) fun is_center_status_created(manage: &mut Manage, region: String): bool {
+    let (found_region, region_idx) = vector::index_of(&mut manage.local_regions, &region);
+    if (!found_region) {
+        return false;
+    };
+
+    *vector::borrow(&mut manage.center_confirm_statuses, region_idx)
+}
+
 public(package) fun is_create_children_center_requestor_valid(
     manage: &mut Manage,
     region: String,
@@ -297,7 +318,7 @@ public(package) fun is_create_children_center_requestor_valid(
     region_found && leader_found && region_idx == leader_idx && !*status_ref
 }
 
-fun is_admin_added(manage: &mut Manage, ctx: &mut TxContext): bool {
+public(package) fun is_admin_added(manage: &mut Manage, ctx: &mut TxContext): bool {
     let (found, _) = vector::index_of(&mut manage.admin_ids, &ctx.sender());
     found
 }

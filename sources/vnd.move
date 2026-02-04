@@ -23,3 +23,7 @@ fun init(witness: VND, ctx: &mut TxContext) {
     transfer::public_freeze_object(coin_metadata);
     transfer::public_transfer(treausury_cap, ctx.sender());
 }
+
+// public entry fun transfer_treasury_cap(cap: TreasuryCap<VND>, recipient: address) {
+//     transfer::public_transfer(cap, recipient);
+// }
