@@ -16,6 +16,7 @@ use raise_child::sponsor::{
     update_donation_after_donate
 };
 use raise_child::vnd::VND;
+use std::address::length;
 use std::ascii::index_of;
 use std::string::{Self, String};
 use std::vector::push_back;
@@ -36,6 +37,7 @@ const EAlreadyVoteProposal: u64 = 9;
 const EWithdrawProposalStillPending: u64 = 10;
 const EProposalApproveRateNotPass: u64 = 11;
 const ENotMatchedPoolInWithdraw: u64 = 12;
+const ENotEnoughVoters: u64 = 13;
 
 const WITHDRAW_MIN_AMOUNT: u128 = 2_000;
 const WITHDRAW_LIMIT_AMOUNT: u128 = 20_000_000;
@@ -69,6 +71,7 @@ public struct LocalPool has key {
 public struct PoolWithdrawDao has key {
     id: UID,
     min_approved_rate: u128,
+    min_voters: u64,
 }
 
 public struct WithDrawProposal has key {
@@ -85,6 +88,7 @@ public struct WithDrawProposal has key {
     refuse_reasons: vector<String>,
     is_executed: bool,
     is_from_local_pool: bool,
+    purpose: String,
     approved_periods: vector<u64>,
     refused_periods: vector<u64>,
     created_at: u64,
@@ -113,6 +117,7 @@ fun init(ctx: &mut TxContext) {
     transfer::share_object(PoolWithdrawDao {
         id: object::new(ctx),
         min_approved_rate: 8_000, // 80%
+        min_voters: 10,
     });
 }
 
@@ -125,6 +130,21 @@ public entry fun init_pool(cap: TreasuryCap<VND>, ctx: &mut TxContext) {
         withdraw_proposals: vector[],
         total_amount: 0,
     });
+}
+
+public fun edit_withdraw_dao_rate(
+    _: &AdminCap,
+    dao: &mut PoolWithdrawDao,
+    min_rate: u128,
+    min_voters: u64,
+) {
+    if (min_rate > 0) {
+        dao.min_approved_rate = min_rate;
+    };
+
+    if (min_voters > 0) {
+        dao.min_voters = min_voters;
+    };
 }
 
 // public fun donate_to_pool(
@@ -301,6 +321,17 @@ public(package) fun mint_vnd(pool: &mut VndPool, amount: u128, ctx: &mut TxConte
     pool.total_amount = pool.total_amount + amount;
 }
 
+public(package) fun split_vnd(
+    pool: &mut VndPool,
+    proposal: &mut WithDrawProposal,
+    ctx: &mut TxContext,
+) {
+    let withdraw_amount_u64 = (proposal.withdraw_amount as u64);
+    let coin = coin::from_balance(balance::split(&mut pool.balance, withdraw_amount_u64), ctx);
+    pool.total_amount = pool.total_amount - proposal.withdraw_amount;
+    transfer::public_transfer(coin, proposal.creator);
+}
+
 public(package) fun create_local_pool(
     pool: &mut VndPool,
     region: String,
@@ -378,8 +409,12 @@ public fun withdraw_from_pool(
     let cur_time = clock::timestamp_ms(clock);
     assert!(proposal.closed_at <= cur_time, EWithdrawProposalStillPending);
     assert!(
-        calculate_aprroval_ratio(proposal) >= dao.min_approved_rate,
+        calculate_withdraw_aprroval_ratio(proposal) >= dao.min_approved_rate,
         EProposalApproveRateNotPass,
+    );
+    assert!(
+        vector::length(&proposal.approvers) + vector::length(&proposal.refusers) >= dao.min_voters,
+        ENotEnoughVoters,
     );
     assert!(!proposal.is_executed, EWithdrawProposalExecuted);
 
@@ -389,6 +424,7 @@ public fun withdraw_from_pool(
         local_pool.total_amount = local_pool.total_amount - proposal.withdraw_amount;
         pool_name = local_pool.region;
     } else {
+        assert!(proposal.pool_id == pool.id.to_inner(), ENotMatchedPoolInWithdraw);
         pool_name = b"Main Pool".to_string();
     };
 
@@ -461,6 +497,7 @@ public fun create_withdraw_proposal(
         refuse_weight: 0,
         is_executed: false,
         is_from_local_pool: is_from_local_pool,
+        purpose: b"Other".to_string(),
         approved_periods: vector[],
         refused_periods: vector[],
         created_at: cur_time,
@@ -470,6 +507,86 @@ public fun create_withdraw_proposal(
 
     vector::push_back(&mut pool.withdraw_proposals, proposal.id.to_inner());
     transfer::share_object(proposal);
+}
+
+public(package) fun create_withdraw_proposal_for_special_need(
+    pool: &mut VndPool,
+    local_pool: &mut LocalPool,
+    withdraw_amount: u128,
+    description: String,
+    closed_at: u64,
+    clock: &Clock,
+    ctx: &mut TxContext,
+): ID {
+    let cur_time = clock::timestamp_ms(clock);
+    assert!(closed_at > cur_time, EPassPeriod);
+
+    let proposal = WithDrawProposal {
+        id: object::new(ctx),
+        pool_id: local_pool.id.to_inner(),
+        pool_name: local_pool.region,
+        creator: ctx.sender(),
+        withdraw_amount: withdraw_amount,
+        description: description,
+        approvers: vector[],
+        refusers: vector[],
+        refuse_reasons: vector[],
+        approve_weight: 0,
+        refuse_weight: 0,
+        is_executed: false,
+        is_from_local_pool: true,
+        purpose: b"Child Special Need".to_string(),
+        approved_periods: vector[],
+        refused_periods: vector[],
+        created_at: cur_time,
+        updated_at: cur_time,
+        closed_at: closed_at,
+    };
+
+    let id = proposal.id.to_inner();
+    vector::push_back(&mut pool.withdraw_proposals, id);
+    transfer::share_object(proposal);
+    id
+}
+
+public(package) fun create_withdraw_proposal_for_books_need(
+    pool: &mut VndPool,
+    local_pool: &mut LocalPool,
+    withdraw_amount: u128,
+    description: String,
+    closed_at: u64,
+    clock: &Clock,
+    ctx: &mut TxContext,
+): ID {
+    let cur_time = clock::timestamp_ms(clock);
+    assert!(closed_at > cur_time, EPassPeriod);
+
+    let proposal = WithDrawProposal {
+        id: object::new(ctx),
+        pool_id: local_pool.id.to_inner(),
+        pool_name: local_pool.region,
+        creator: ctx.sender(),
+        withdraw_amount: withdraw_amount,
+        description: description,
+        approvers: vector[],
+        refusers: vector[],
+        refuse_reasons: vector[],
+        approve_weight: 0,
+        refuse_weight: 0,
+        is_executed: false,
+        is_from_local_pool: true,
+        purpose: b"Child Books Need".to_string(),
+        approved_periods: vector[],
+        refused_periods: vector[],
+        created_at: cur_time,
+        updated_at: cur_time,
+        closed_at: closed_at,
+    };
+
+    let id = proposal.id.to_inner();
+    vector::push_back(&mut pool.withdraw_proposals, id);
+    transfer::share_object(proposal);
+    id
 }
 
 public fun vote_withdraw_proposal(
@@ -506,7 +623,7 @@ public fun vote_withdraw_proposal(
     proposal.updated_at = cur_time;
 }
 
-fun calculate_aprroval_ratio(proposal: &mut WithDrawProposal): u128 {
+public(package) fun calculate_withdraw_aprroval_ratio(proposal: &mut WithDrawProposal): u128 {
     let total = proposal.approve_weight + proposal.refuse_weight;
     if (total == 0) return 0;
 
@@ -523,4 +640,57 @@ public(package) fun get_local_pool_region(pool: &mut LocalPool): String {
 
 public(package) fun add_amount_to_local_pool(pool: &mut LocalPool, amount: u128) {
     pool.total_amount = pool.total_amount + amount;
+}
+
+public(package) fun is_leader_in_pool(pool: &mut LocalPool, ctx: &mut TxContext): bool {
+    let (found, _) = vector::index_of(&mut pool.mods, &ctx.sender());
+    found
+}
+
+public(package) fun get_withdraw_proposal_close_period(proposal: &mut WithDrawProposal): u64 {
+    proposal.closed_at
+}
+
+public(package) fun get_withdraw_dao_min_approve_rate(dao: &mut PoolWithdrawDao): u128 {
+    dao.min_approved_rate
+}
+
+public(package) fun get_withdraw_dao_min_voters(dao: &mut PoolWithdrawDao): u64 {
+    dao.min_voters
+}
+
+public(package) fun get_withdraw_proposal_execute_status(proposal: &mut WithDrawProposal): bool {
+    proposal.is_executed
+}
+
+public(package) fun get_withdraw_proposal_approvers_number(proposal: &mut WithDrawProposal): u64 {
+    vector::length(&proposal.approvers)
+}
+
+public(package) fun get_withdraw_proposal_refusers_number(proposal: &mut WithDrawProposal): u64 {
+    vector::length(&proposal.refusers)
+}
+
+public(package) fun set_withdraw_proposal_executed(proposal: &mut WithDrawProposal, cur_time: u64) {
+    proposal.is_executed = true;
+    proposal.updated_at = cur_time;
+}
+
+public(package) fun get_withdraw_proposal_amount(proposal: &mut WithDrawProposal): u128 {
+    proposal.withdraw_amount
+}
+
+public(package) fun get_withdraw_proposal_description(proposal: &mut WithDrawProposal): String {
+    proposal.description
+}
+
+public(package) fun get_withdraw_proposal_id(proposal: &mut WithDrawProposal): ID {
+    proposal.id.to_inner()
+}
+
+public(package) fun is_withdraw_proposal_matched_local_pool(
+    proposal: &mut WithDrawProposal,
+    pool: &mut LocalPool,
+): bool {
+    proposal.pool_name == pool.region
 }

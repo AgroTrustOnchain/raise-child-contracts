@@ -372,6 +372,16 @@ public(package) fun add_sponsor_to_manage_v2(manage: &mut Manage, sender: addres
     vector::push_back(&mut manage.sponsor_ids, sender);
 }
 
+public(package) fun add_sponsor_to_manage_v3(
+    manage: &mut Manage,
+    sponsor_id: ID,
+    ctx: &mut TxContext,
+) {
+    assert!(!is_sponsor_added(manage, ctx), ESponsorExisted);
+    vector::push_back(&mut manage.sponsor_ids, ctx.sender());
+    vector::push_back(&mut manage.sponsor_nfts, sponsor_id);
+}
+
 public(package) fun add_child_to_manage(manage: &mut Manage, id: ID, ctx: &mut TxContext) {
     vector::push_back(&mut manage.child_ids, id);
 }

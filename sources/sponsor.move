@@ -1,6 +1,6 @@
 module raise_child::sponsor;
 
-use raise_child::manage::{Manage, is_sponsor_added, is_sponsor_added_v2};
+use raise_child::manage::{Manage, is_sponsor_added, is_sponsor_added_v2, add_sponsor_to_manage_v3};
 use std::string::{Self, String, utf8};
 use sui::url::{Url, new_unsafe_from_bytes};
 
@@ -60,6 +60,7 @@ public(package) fun mint_sponsor_nft(
             url: new_unsafe_from_bytes(b"some-link"),
         };
 
+        add_sponsor_to_manage_v3(manage, nft.id.to_inner(), ctx);
         transfer::transfer(nft, ctx.sender());
     }
 }
@@ -89,6 +90,7 @@ public(package) fun mint_sponsor_nft_v2(
     };
 
     let id = nft.id.to_inner();
+    add_sponsor_to_manage_v3(manage, id, ctx);
     transfer::transfer(nft, owner);
     id
 }

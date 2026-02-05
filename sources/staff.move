@@ -19,7 +19,7 @@ use raise_child::manage::{
     RegisterAdminCap,
     UploadCenterCap
 };
-use raise_child::pool::{VndPool, LocalPool, create_local_pool, add_leader_to_pool};
+use raise_child::pool::{VndPool, LocalPool, add_leader_to_pool};
 use std::string::{Self, String, utf8};
 use std::u128::to_string;
 use sui::clock::{Self, Clock};
