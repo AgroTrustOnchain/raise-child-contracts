@@ -1,12 +1,12 @@
-module raise_child::sponsor;
+module raise_child::donor;
 
-use raise_child::manage::{Manage, is_sponsor_added, is_sponsor_added_v2, add_sponsor_to_manage_v3};
+use raise_child::manage::{Manage, is_donor_added, is_donor_added_v2, add_donor_to_manage_v3};
 use std::string::{Self, String, utf8};
 use sui::url::{Url, new_unsafe_from_bytes};
 
 const ENftExisted: u64 = 1;
 
-public struct SponsorNFT has key {
+public struct DonorNFT has key {
     id: UID,
     owner: address,
     first_name: String,
@@ -21,7 +21,7 @@ public struct SponsorNFT has key {
 
 fun init(ctx: &mut TxContext) {
     let empty = b"".to_string();
-    transfer::share_object(SponsorNFT {
+    transfer::share_object(DonorNFT {
         id: object::new(ctx),
         owner: ctx.sender(),
         first_name: empty,
@@ -30,12 +30,12 @@ fun init(ctx: &mut TxContext) {
         phone_number: empty,
         email: empty,
         total_donation: 0,
-        name: b"RaiseChild Sponsor NFT".to_string(),
+        name: b"RaiseChild Donor NFT".to_string(),
         url: new_unsafe_from_bytes(b"some-link"),
     });
 }
 
-public(package) fun mint_sponsor_nft(
+public(package) fun mint_donor_nft(
     manage: &mut Manage,
     first_name: String,
     last_name: String,
@@ -45,9 +45,9 @@ public(package) fun mint_sponsor_nft(
     amount: u128,
     ctx: &mut TxContext,
 ) {
-    if (!is_sponsor_added(manage, ctx)) {
+    if (!is_donor_added(manage, ctx)) {
         let owner = ctx.sender();
-        let nft = SponsorNFT {
+        let nft = DonorNFT {
             id: object::new(ctx),
             owner: owner,
             first_name: first_name,
@@ -56,16 +56,16 @@ public(package) fun mint_sponsor_nft(
             phone_number: phone_number,
             email: email,
             total_donation: amount,
-            name: b"RaiseChild Sponsor NFT".to_string(),
+            name: b"RaiseChild Donor NFT".to_string(),
             url: new_unsafe_from_bytes(b"some-link"),
         };
 
-        add_sponsor_to_manage_v3(manage, nft.id.to_inner(), ctx);
+        add_donor_to_manage_v3(manage, nft.id.to_inner(), ctx);
         transfer::transfer(nft, ctx.sender());
     }
 }
 
-public(package) fun mint_sponsor_nft_v2(
+public(package) fun mint_donor_nft_v2(
     manage: &mut Manage,
     first_name: String,
     last_name: String,
@@ -76,7 +76,7 @@ public(package) fun mint_sponsor_nft_v2(
     ctx: &mut TxContext,
 ): ID {
     let owner = ctx.sender();
-    let nft = SponsorNFT {
+    let nft = DonorNFT {
         id: object::new(ctx),
         owner: owner,
         first_name: first_name,
@@ -85,28 +85,28 @@ public(package) fun mint_sponsor_nft_v2(
         phone_number: phone_number,
         email: email,
         total_donation: amount,
-        name: b"RaiseChild Sponsor NFT".to_string(),
+        name: b"RaiseChild Donor NFT".to_string(),
         url: new_unsafe_from_bytes(b"some-link"),
     };
 
     let id = nft.id.to_inner();
-    add_sponsor_to_manage_v3(manage, id, ctx);
+    add_donor_to_manage_v3(manage, id, ctx);
     transfer::transfer(nft, owner);
     id
 }
 
 public(package) fun update_donation_after_donate(
-    sponsor: &mut SponsorNFT,
+    donor: &mut DonorNFT,
     amount: u128,
     ctx: &mut TxContext,
 ) {
-    sponsor.total_donation = sponsor.total_donation + amount;
+    donor.total_donation = donor.total_donation + amount;
 }
 
-public(package) fun get_sponsor_donate_amount(sponsor: &mut SponsorNFT, ctx: &mut TxContext): u128 {
-    sponsor.total_donation
+public(package) fun get_donor_donate_amount(donor: &mut DonorNFT, ctx: &mut TxContext): u128 {
+    donor.total_donation
 }
 
-public(package) fun get_sponsor_id(sponsor: &mut SponsorNFT): ID {
-    sponsor.id.to_inner()
+public(package) fun get_donor_id(donor: &mut DonorNFT): ID {
+    donor.id.to_inner()
 }

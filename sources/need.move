@@ -1,6 +1,14 @@
 module raise_child::need;
 
-use raise_child::manage::{Manage, AdminCap, is_sponsor_added, add_sponsor_to_manage};
+use raise_child::donor::{
+    DonorNFT,
+    mint_donor_nft_v2,
+    update_donation_after_donate,
+    get_donor_id,
+    get_donor_donate_amount,
+    mint_donor_nft
+};
+use raise_child::manage::{Manage, AdminCap, is_donor_added, add_donor_to_manage};
 use raise_child::pool::{
     VndPool,
     LocalPool,
@@ -22,20 +30,14 @@ use raise_child::pool::{
     get_withdraw_proposal_amount,
     get_withdraw_proposal_description,
     get_withdraw_proposal_id,
-    create_withdraw_proposal_for_books_need
+    create_withdraw_proposal_for_books_need,
+    create_withdraw_proposal_for_meal_need
 };
 use raise_child::record::create_tx_record_v2;
-use raise_child::sponsor::{
-    SponsorNFT,
-    mint_sponsor_nft_v2,
-    update_donation_after_donate,
-    get_sponsor_id,
-    get_sponsor_donate_amount,
-    mint_sponsor_nft
-};
 use std::string::String;
 use std::vector::push_back;
 use sui::clock::{Self, Clock};
+use sui::table::{Self, Table};
 
 const ENotMatchedAmount: u64 = 1;
 const ENeedSupported: u64 = 2;
@@ -53,6 +55,7 @@ const EWithdrawProposalExecuted: u64 = 13;
 const EWithdrawProposalNotOfCampaign: u64 = 14;
 const ENeedHasBeenFunded: u64 = 15;
 const EWithdrawProposalNotOfNeed: u64 = 16;
+const EInvalidSupportMonths: u64 = 17;
 
 const MIN_SPECIAL_NEED_TARGET: u128 = 100_000;
 const PRESISION_FACTOR: u128 = 1_000;
@@ -69,7 +72,7 @@ public struct BooksNeed has key {
     year_changes: vector<u64>,
     semester: u64,
     value: u128,
-    sponsors: vector<ID>,
+    donors: vector<ID>,
     donations: vector<ID>,
     withdraw_proposals: vector<ID>,
     withdraws_for_need: vector<ID>,
@@ -84,9 +87,11 @@ public struct MealNeed has key {
     id: UID,
     year: u64,
     value: u128,
-    sponsors: vector<ID>,
+    donors: vector<ID>,
     donations: vector<ID>,
     durations: vector<MealSupportDuration>,
+    total_supported_months: u64,
+    supported_years: Table<u64, u64>,
     withdraw_proposals: vector<ID>,
     withdraws_for_need: vector<ID>,
 }
@@ -155,7 +160,7 @@ public(package) fun init_books_need(semester: u64, year: u64, ctx: &mut TxContex
         year_changes: vector[year],
         semester: semester,
         value: 0,
-        sponsors: vector[],
+        donors: vector[],
         donations: vector[],
         withdraw_proposals: vector[],
         withdraws_for_need: vector[],
@@ -172,9 +177,11 @@ public(package) fun init_meal_need(year: u64, ctx: &mut TxContext): ID {
         id: object::new(ctx),
         year: year,
         value: 0,
-        sponsors: vector[],
+        donors: vector[],
         donations: vector[],
         durations: vector[],
+        total_supported_months: 0,
+        supported_years: table::new<u64, u64>(ctx),
         withdraw_proposals: vector[],
         withdraws_for_need: vector[],
     };
@@ -190,7 +197,7 @@ public(package) fun support_books_need(
     manage: &mut Manage,
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
-    sponsor: &mut SponsorNFT,
+    donor: &mut DonorNFT,
     amount: u128,
     first_name: String,
     last_name: String,
@@ -204,10 +211,10 @@ public(package) fun support_books_need(
     assert!(amount == need.value, ENotMatchedAmount);
     assert!(vector::length(&need.donations) < vector::length(&need.year_changes), ENeedSupported);
 
-    let sponsor_id: ID;
-    if (!is_sponsor_added(manage, ctx)) {
-        sponsor_id =
-            mint_sponsor_nft_v2(
+    let donor_id: ID;
+    if (!is_donor_added(manage, ctx)) {
+        donor_id =
+            mint_donor_nft_v2(
                 manage,
                 first_name,
                 last_name,
@@ -218,8 +225,8 @@ public(package) fun support_books_need(
                 ctx,
             );
     } else {
-        update_donation_after_donate(sponsor, amount, ctx);
-        sponsor_id = get_sponsor_id(sponsor);
+        update_donation_after_donate(donor, amount, ctx);
+        donor_id = get_donor_id(donor);
     };
 
     mint_vnd(pool, amount, ctx);
@@ -236,7 +243,7 @@ public(package) fun support_books_need(
             ctx,
         ),
     );
-    vector::push_back(&mut need.sponsors, sponsor_id);
+    vector::push_back(&mut need.donors, donor_id);
 }
 
 public(package) fun support_meal_need(
@@ -244,8 +251,8 @@ public(package) fun support_meal_need(
     manage: &mut Manage,
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
-    sponsor: &mut SponsorNFT,
-    amount: u128,
+    donor: &mut DonorNFT,
+    months: u64,
     start_period: String,
     end_period: String,
     first_name: String,
@@ -257,13 +264,22 @@ public(package) fun support_meal_need(
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
-    let supported_months = amount / need.value;
-    assert!(supported_months >= 1 && supported_months <= 12, EInvalidSupportValue);
+    // let mut is_valid_support = months >= 1 && months <= 12;
+    assert!(months >= 1 && months <= 12, EInvalidSupportValue);
+    if (table::contains(&need.supported_years, need.year)) {
+        let supported_months = table::borrow_mut(&mut need.supported_years, need.year);
+        let total_months = *supported_months + months;
+        assert!(total_months <= 12, EInvalidSupportValue);
+        *supported_months = total_months;
+    } else {
+        table::add(&mut need.supported_years, need.year, months);
+    };
 
-    let sponsor_id: ID;
-    if (!is_sponsor_added(manage, ctx)) {
-        sponsor_id =
-            mint_sponsor_nft_v2(
+    let amount = (months as u128) * need.value;
+    let donor_id: ID;
+    if (!is_donor_added(manage, ctx)) {
+        donor_id =
+            mint_donor_nft_v2(
                 manage,
                 first_name,
                 last_name,
@@ -274,8 +290,8 @@ public(package) fun support_meal_need(
                 ctx,
             );
     } else {
-        update_donation_after_donate(sponsor, amount, ctx);
-        sponsor_id = get_sponsor_id(sponsor);
+        update_donation_after_donate(donor, amount, ctx);
+        donor_id = get_donor_id(donor);
     };
 
     mint_vnd(pool, amount, ctx);
@@ -292,7 +308,7 @@ public(package) fun support_meal_need(
             ctx,
         ),
     );
-    vector::push_back(&mut need.sponsors, sponsor_id);
+    vector::push_back(&mut need.donors, donor_id);
     vector::push_back(
         &mut need.durations,
         MealSupportDuration { start_period: start_period, end_period: end_period },
@@ -337,7 +353,7 @@ public(package) fun create_special_need_proposal(
 
 public fun vote_special_need_proposal(
     proposal: &mut SpecialNeedProposal,
-    sponsor: &mut SponsorNFT,
+    donor: &mut DonorNFT,
     dao: &mut SpecialNeedDao,
     is_approve: bool,
     refuse_reason: String,
@@ -357,11 +373,11 @@ public fun vote_special_need_proposal(
 
     if (is_approve) {
         vector::push_back(&mut proposal.approvers, sender);
-        proposal.approve_weight = proposal.approve_weight + get_sponsor_donate_amount(sponsor, ctx);
+        proposal.approve_weight = proposal.approve_weight + get_donor_donate_amount(donor, ctx);
         vector::push_back(&mut proposal.approved_periods, cur_time);
     } else {
         vector::push_back(&mut proposal.refusers, sender);
-        proposal.refuse_weight = proposal.refuse_weight + get_sponsor_donate_amount(sponsor, ctx);
+        proposal.refuse_weight = proposal.refuse_weight + get_donor_donate_amount(donor, ctx);
         vector::push_back(&mut proposal.refuse_reasons, refuse_reason);
         vector::push_back(&mut proposal.refused_periods, cur_time);
     };
@@ -413,7 +429,7 @@ public(package) fun support_special_need_campaign(
     manage: &mut Manage,
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
-    sponsor: &mut SponsorNFT,
+    donor: &mut DonorNFT,
     amount: u128,
     first_name: String,
     last_name: String,
@@ -426,8 +442,8 @@ public(package) fun support_special_need_campaign(
 ) {
     assert!(campaign.total_donated + amount <= campaign.target, EDonationPassTarget);
 
-    if (!is_sponsor_added(manage, ctx)) {
-        mint_sponsor_nft(
+    if (!is_donor_added(manage, ctx)) {
+        mint_donor_nft(
             manage,
             first_name,
             last_name,
@@ -438,7 +454,7 @@ public(package) fun support_special_need_campaign(
             ctx,
         );
     } else {
-        update_donation_after_donate(sponsor, amount, ctx);
+        update_donation_after_donate(donor, amount, ctx);
     };
 
     mint_vnd(pool, amount, ctx);
@@ -556,6 +572,73 @@ public(package) fun withdraw_from_books_need(
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
     need: &mut BooksNeed,
+    proposal: &mut WithDrawProposal,
+    dao: &mut PoolWithdrawDao,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    let (found, _) = vector::index_of(
+        &mut need.withdraw_proposals,
+        &get_withdraw_proposal_id(proposal),
+    );
+    assert!(found, EWithdrawProposalNotOfNeed);
+
+    let cur_time = clock::timestamp_ms(clock);
+    assert!(get_withdraw_proposal_close_period(proposal) <= cur_time, EProposalStillPending);
+    assert!(
+        calculate_withdraw_aprroval_ratio(proposal) >= get_withdraw_dao_min_approve_rate(dao),
+        EProposalApproveRateNotPass,
+    );
+    assert!(!get_withdraw_proposal_execute_status(proposal), EWithdrawProposalExecuted);
+
+    split_vnd(pool, proposal, ctx);
+    set_withdraw_proposal_executed(proposal, cur_time);
+    vector::push_back(
+        &mut need.withdraws_for_need,
+        create_tx_record_v2(
+            get_withdraw_proposal_amount(proposal),
+            b"VND".to_string(),
+            b"Withdraw".to_string(),
+            get_local_pool_region(local_pool),
+            get_withdraw_proposal_description(proposal),
+            clock,
+            ctx,
+        ),
+    );
+}
+
+public(package) fun create_meal_need_withdraw_proposal(
+    need: &mut MealNeed,
+    pool: &mut VndPool,
+    local_pool: &mut LocalPool,
+    description: String,
+    closed_at: u64,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    assert!(
+        need.total_supported_months > vector::length(&need.withdraws_for_need),
+        ENeedHasBeenFunded,
+    );
+
+    vector::push_back(
+        &mut need.withdraw_proposals,
+        create_withdraw_proposal_for_meal_need(
+            pool,
+            local_pool,
+            need.value,
+            description,
+            closed_at,
+            clock,
+            ctx,
+        ),
+    );
+}
+
+public(package) fun withdraw_from_meal_need(
+    pool: &mut VndPool,
+    local_pool: &mut LocalPool,
+    need: &mut MealNeed,
     proposal: &mut WithDrawProposal,
     dao: &mut PoolWithdrawDao,
     clock: &Clock,

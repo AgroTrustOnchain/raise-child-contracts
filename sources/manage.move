@@ -12,7 +12,7 @@ use sui::url::{Url, new_unsafe_from_bytes};
 const ENotAuthorized: u64 = 1;
 const EZeroAmount: u64 = 2;
 const EInsufficientAmount: u64 = 3;
-const ESponsorExisted: u64 = 4;
+const EDonorExisted: u64 = 4;
 const ELeaderExisted: u64 = 5;
 const ERegionExisted: u64 = 6;
 const EVolunteerExisted: u64 = 7;
@@ -33,8 +33,8 @@ public struct Manage has key {
     children_centers: vector<ID>,
     center_confirm_statuses: vector<bool>,
     created_centers: vector<ID>,
-    sponsor_nfts: vector<ID>,
-    sponsor_ids: vector<address>,
+    donor_nfts: vector<ID>,
+    donor_ids: vector<address>,
 }
 
 public struct AdminNFT has key {
@@ -113,8 +113,8 @@ fun init(ctx: &mut TxContext) {
         children_centers: vector[],
         center_confirm_statuses: vector[],
         created_centers: vector[],
-        sponsor_nfts: vector[],
-        sponsor_ids: vector[],
+        donor_nfts: vector[],
+        donor_ids: vector[],
     };
 
     transfer::transfer(nft, sender);
@@ -269,16 +269,16 @@ public(package) fun burn_upload_center_cap(cap: UploadCenterCap, ctx: &mut TxCon
 
 public(package) fun is_withdraw_requestor_valid(manage: &mut Manage, ctx: &mut TxContext): bool {
     let (found, _) = vector::index_of(&mut manage.admin_ids, &ctx.sender());
-    found || is_sponsor_added(manage, ctx) || is_leader_added(manage, ctx) || is_volunteer_added(manage, ctx)
+    found || is_donor_added(manage, ctx) || is_leader_added(manage, ctx) || is_volunteer_added(manage, ctx)
 }
 
-public(package) fun is_sponsor_added(manage: &mut Manage, ctx: &mut TxContext): bool {
-    let (found, _) = vector::index_of(&mut manage.sponsor_ids, &ctx.sender());
+public(package) fun is_donor_added(manage: &mut Manage, ctx: &mut TxContext): bool {
+    let (found, _) = vector::index_of(&mut manage.donor_ids, &ctx.sender());
     found
 }
 
-public(package) fun is_sponsor_added_v2(manage: &mut Manage, sender: address): bool {
-    let (found, _) = vector::index_of(&mut manage.sponsor_ids, &sender);
+public(package) fun is_donor_added_v2(manage: &mut Manage, sender: address): bool {
+    let (found, _) = vector::index_of(&mut manage.donor_ids, &sender);
     found
 }
 
@@ -362,24 +362,20 @@ public(package) fun add_children_center_to_manage(
     object::delete(cap_id);
 }
 
-public(package) fun add_sponsor_to_manage(manage: &mut Manage, ctx: &mut TxContext) {
-    assert!(!is_sponsor_added(manage, ctx), ESponsorExisted);
-    vector::push_back(&mut manage.sponsor_ids, ctx.sender());
+public(package) fun add_donor_to_manage(manage: &mut Manage, ctx: &mut TxContext) {
+    assert!(!is_donor_added(manage, ctx), EDonorExisted);
+    vector::push_back(&mut manage.donor_ids, ctx.sender());
 }
 
-public(package) fun add_sponsor_to_manage_v2(manage: &mut Manage, sender: address) {
-    assert!(!is_sponsor_added_v2(manage, sender), ESponsorExisted);
-    vector::push_back(&mut manage.sponsor_ids, sender);
+public(package) fun add_donor_to_manage_v2(manage: &mut Manage, sender: address) {
+    assert!(!is_donor_added_v2(manage, sender), EDonorExisted);
+    vector::push_back(&mut manage.donor_ids, sender);
 }
 
-public(package) fun add_sponsor_to_manage_v3(
-    manage: &mut Manage,
-    sponsor_id: ID,
-    ctx: &mut TxContext,
-) {
-    assert!(!is_sponsor_added(manage, ctx), ESponsorExisted);
-    vector::push_back(&mut manage.sponsor_ids, ctx.sender());
-    vector::push_back(&mut manage.sponsor_nfts, sponsor_id);
+public(package) fun add_donor_to_manage_v3(manage: &mut Manage, donor_id: ID, ctx: &mut TxContext) {
+    assert!(!is_donor_added(manage, ctx), EDonorExisted);
+    vector::push_back(&mut manage.donor_ids, ctx.sender());
+    vector::push_back(&mut manage.donor_nfts, donor_id);
 }
 
 public(package) fun add_child_to_manage(manage: &mut Manage, id: ID, ctx: &mut TxContext) {

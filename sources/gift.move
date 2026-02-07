@@ -1,15 +1,15 @@
 module raise_child::gift;
 
 use raise_child::child::{Child, add_gift, get_child_inner_id, get_child_region};
+use raise_child::donor::{DonorNFT, mint_donor_nft, update_donation_after_donate};
 use raise_child::manage::{
     Manage,
-    is_sponsor_added,
-    is_sponsor_added_v2,
-    add_sponsor_to_manage,
-    add_sponsor_to_manage_v2
+    is_donor_added,
+    is_donor_added_v2,
+    add_donor_to_manage,
+    add_donor_to_manage_v2
 };
 use raise_child::record::create_tx_record;
-use raise_child::sponsor::{SponsorNFT, mint_sponsor_nft, update_donation_after_donate};
 use raise_child::staff::{StaffNFT, is_staff_matched_region};
 use std::string::String;
 use sui::clock::{Self, Clock};
@@ -43,7 +43,7 @@ public struct Gift has key {
 
 public fun create_gift(
     manage: &mut Manage,
-    sponsor: &mut SponsorNFT,
+    donor: &mut DonorNFT,
     child: &mut Child,
     tracking_code: String,
     carrier: String,
@@ -61,8 +61,8 @@ public fun create_gift(
     ctx: &mut TxContext,
 ) {
     assert!(amount >= 2000, EInvalidAmount);
-    if (!is_sponsor_added(manage, ctx)) {
-        mint_sponsor_nft(
+    if (!is_donor_added(manage, ctx)) {
+        mint_donor_nft(
             manage,
             first_name,
             last_name,
@@ -72,9 +72,9 @@ public fun create_gift(
             amount,
             ctx,
         );
-        add_sponsor_to_manage(manage, ctx);
+        add_donor_to_manage(manage, ctx);
     } else {
-        update_donation_after_donate(sponsor, amount, ctx);
+        update_donation_after_donate(donor, amount, ctx);
     };
 
     create_tx_record(
@@ -142,7 +142,7 @@ public fun confirm_recieved(
 
 // public fun confirm_recieved(
 //     manage: &mut Manage,
-//     sponsor: &mut SponsorNFT,
+//     donor: &mut DonorNFT,
 //     first_name: String,
 //     last_name: String,
 //     gender: String,
@@ -160,8 +160,8 @@ public fun confirm_recieved(
 //     assert!(image_blob_id != b"".to_string(), EMissingRecievedProff);
 //     assert!(is_staff_matched_region(staff, get_child_region(child)), ENotStaffInRegion);
 
-//     if (!is_sponsor_added_v2(manage, gift.sender)) {
-//         mint_sponsor_nft_v2(
+//     if (!is_donor_added_v2(manage, gift.sender)) {
+//         mint_donor_nft_v2(
 //             manage,
 //             first_name,
 //             last_name,
@@ -172,7 +172,7 @@ public fun confirm_recieved(
 //             gift.sender,
 //             ctx,
 //         );
-//         add_sponsor_to_manage_v2(manage, gift.sender);
+//         add_donor_to_manage_v2(manage, gift.sender);
 //     };
 
 //     gift.delivered_image_blob_id = image_blob_id;

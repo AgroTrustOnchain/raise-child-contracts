@@ -1,20 +1,20 @@
 module raise_child::pool;
 
+use raise_child::donor::{
+    mint_donor_nft,
+    DonorNFT,
+    get_donor_donate_amount,
+    update_donation_after_donate
+};
 use raise_child::manage::{
     Manage,
     AdminCap,
-    add_sponsor_to_manage,
-    is_sponsor_added,
+    add_donor_to_manage,
+    is_donor_added,
     is_admin_added,
     is_withdraw_requestor_valid
 };
 use raise_child::record::create_tx_record;
-use raise_child::sponsor::{
-    mint_sponsor_nft,
-    SponsorNFT,
-    get_sponsor_donate_amount,
-    update_donation_after_donate
-};
 use raise_child::vnd::VND;
 use std::address::length;
 use std::ascii::index_of;
@@ -151,7 +151,7 @@ public fun edit_withdraw_dao_rate(
 //     manage: &mut Manage,
 //     pool: &mut VndPool,
 //     treausury_cap: &mut TreasuryCap<VND>,
-//     sponsor: &mut SponsorNFT,
+//     donor: &mut DonorNFT,
 //     amount: u128,
 //     first_name: String,
 //     last_name: String,
@@ -164,8 +164,8 @@ public fun edit_withdraw_dao_rate(
 // ) {
 //     assert!(amount > 0, ENegativeAmount);
 
-//     if (!is_sponsor_added(manage, ctx)) {
-//         mint_sponsor_nft(
+//     if (!is_donor_added(manage, ctx)) {
+//         mint_donor_nft(
 //             manage,
 //             first_name,
 //             last_name,
@@ -175,11 +175,11 @@ public fun edit_withdraw_dao_rate(
 //             amount,
 //             ctx,
 //         );
-//         add_sponsor_to_manage(manage, ctx);
+//         add_donor_to_manage(manage, ctx);
 //     };
 
 //     let vnd = coin::mint(treausury_cap, (amount as u64), ctx);
-//     update_donation_after_donate(sponsor, amount, ctx);
+//     update_donation_after_donate(donor, amount, ctx);
 //     balance::join(&mut pool.balance, coin::into_balance(vnd));
 //     pool.total_amount = pool.total_amount + amount;
 
@@ -191,7 +191,7 @@ public fun edit_withdraw_dao_rate(
 public fun donate_to_pool(
     manage: &mut Manage,
     pool: &mut VndPool,
-    sponsor: &mut SponsorNFT,
+    donor: &mut DonorNFT,
     amount: u128,
     first_name: String,
     last_name: String,
@@ -204,8 +204,8 @@ public fun donate_to_pool(
 ) {
     assert!(amount > 0, ENegativeAmount);
 
-    if (!is_sponsor_added(manage, ctx)) {
-        mint_sponsor_nft(
+    if (!is_donor_added(manage, ctx)) {
+        mint_donor_nft(
             manage,
             first_name,
             last_name,
@@ -215,11 +215,11 @@ public fun donate_to_pool(
             amount,
             ctx,
         );
-        add_sponsor_to_manage(manage, ctx);
+        add_donor_to_manage(manage, ctx);
     };
 
     let vnd = coin::mint(&mut pool.treasury_cap, (amount as u64), ctx);
-    update_donation_after_donate(sponsor, amount, ctx);
+    update_donation_after_donate(donor, amount, ctx);
     balance::join(&mut pool.balance, coin::into_balance(vnd));
     pool.total_amount = pool.total_amount + amount;
 
@@ -233,7 +233,7 @@ public fun donate_to_pool(
 //     pool: &mut VndPool,
 //     local_pool: &mut LocalPool,
 //     treausury_cap: &mut TreasuryCap<VND>,
-//     sponsor: &mut SponsorNFT,
+//     donor: &mut DonorNFT,
 //     amount: u128,
 //     first_name: String,
 //     last_name: String,
@@ -246,8 +246,8 @@ public fun donate_to_pool(
 // ) {
 //     assert!(amount > 0, ENegativeAmount);
 
-//     if (!is_sponsor_added(manage, ctx)) {
-//         mint_sponsor_nft(
+//     if (!is_donor_added(manage, ctx)) {
+//         mint_donor_nft(
 //             manage,
 //             first_name,
 //             last_name,
@@ -257,9 +257,9 @@ public fun donate_to_pool(
 //             amount,
 //             ctx,
 //         );
-//         add_sponsor_to_manage(manage, ctx);
+//         add_donor_to_manage(manage, ctx);
 //     } else {
-//         update_donation_after_donate(sponsor, amount, ctx);
+//         update_donation_after_donate(donor, amount, ctx);
 //     };
 
 //     let vnd = coin::mint(treausury_cap, (amount as u64), ctx);
@@ -276,7 +276,7 @@ public fun donate_to_local_pool(
     manage: &mut Manage,
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
-    sponsor: &mut SponsorNFT,
+    donor: &mut DonorNFT,
     amount: u128,
     first_name: String,
     last_name: String,
@@ -289,8 +289,8 @@ public fun donate_to_local_pool(
 ) {
     assert!(amount > 0, ENegativeAmount);
 
-    if (!is_sponsor_added(manage, ctx)) {
-        mint_sponsor_nft(
+    if (!is_donor_added(manage, ctx)) {
+        mint_donor_nft(
             manage,
             first_name,
             last_name,
@@ -300,9 +300,9 @@ public fun donate_to_local_pool(
             amount,
             ctx,
         );
-        add_sponsor_to_manage(manage, ctx);
+        add_donor_to_manage(manage, ctx);
     } else {
-        update_donation_after_donate(sponsor, amount, ctx);
+        update_donation_after_donate(donor, amount, ctx);
     };
 
     let vnd = coin::mint(&mut pool.treasury_cap, (amount as u64), ctx);
@@ -589,9 +589,49 @@ public(package) fun create_withdraw_proposal_for_books_need(
     id
 }
 
+public(package) fun create_withdraw_proposal_for_meal_need(
+    pool: &mut VndPool,
+    local_pool: &mut LocalPool,
+    withdraw_amount: u128,
+    description: String,
+    closed_at: u64,
+    clock: &Clock,
+    ctx: &mut TxContext,
+): ID {
+    let cur_time = clock::timestamp_ms(clock);
+    assert!(closed_at > cur_time, EPassPeriod);
+
+    let proposal = WithDrawProposal {
+        id: object::new(ctx),
+        pool_id: local_pool.id.to_inner(),
+        pool_name: local_pool.region,
+        creator: ctx.sender(),
+        withdraw_amount: withdraw_amount,
+        description: description,
+        approvers: vector[],
+        refusers: vector[],
+        refuse_reasons: vector[],
+        approve_weight: 0,
+        refuse_weight: 0,
+        is_executed: false,
+        is_from_local_pool: true,
+        purpose: b"Child Meal Need".to_string(),
+        approved_periods: vector[],
+        refused_periods: vector[],
+        created_at: cur_time,
+        updated_at: cur_time,
+        closed_at: closed_at,
+    };
+
+    let id = proposal.id.to_inner();
+    vector::push_back(&mut pool.withdraw_proposals, id);
+    transfer::share_object(proposal);
+    id
+}
+
 public fun vote_withdraw_proposal(
     proposal: &mut WithDrawProposal,
-    sponsor: &mut SponsorNFT,
+    donor: &mut DonorNFT,
     dao: &mut PoolWithdrawDao,
     is_approve: bool,
     refuse_reason: String,
@@ -611,11 +651,11 @@ public fun vote_withdraw_proposal(
 
     if (is_approve) {
         vector::push_back(&mut proposal.approvers, sender);
-        proposal.approve_weight = proposal.approve_weight + get_sponsor_donate_amount(sponsor, ctx);
+        proposal.approve_weight = proposal.approve_weight + get_donor_donate_amount(donor, ctx);
         vector::push_back(&mut proposal.approved_periods, cur_time);
     } else {
         vector::push_back(&mut proposal.refusers, sender);
-        proposal.refuse_weight = proposal.refuse_weight + get_sponsor_donate_amount(sponsor, ctx);
+        proposal.refuse_weight = proposal.refuse_weight + get_donor_donate_amount(donor, ctx);
         vector::push_back(&mut proposal.refuse_reasons, refuse_reason);
         vector::push_back(&mut proposal.refused_periods, cur_time);
     };

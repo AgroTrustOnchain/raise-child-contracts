@@ -1,5 +1,6 @@
 module raise_child::child;
 
+use raise_child::donor::DonorNFT;
 use raise_child::manage::{
     add_child_to_manage,
     add_children_center_to_manage,
@@ -31,7 +32,9 @@ use raise_child::need::{
     get_special_need_campaign_id,
     create_withdraw_proposal,
     create_books_need_withdraw_proposal,
-    withdraw_from_books_need
+    withdraw_from_books_need,
+    create_meal_need_withdraw_proposal,
+    withdraw_from_meal_need
 };
 use raise_child::pool::{
     VndPool,
@@ -43,7 +46,6 @@ use raise_child::pool::{
     is_leader_in_pool,
     is_withdraw_proposal_matched_local_pool
 };
-use raise_child::sponsor::SponsorNFT;
 use std::ascii::index_of;
 use std::string::String;
 use sui::clock::{Self, Clock};
@@ -317,7 +319,7 @@ public fun support_child_books_need(
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
     child: &mut Child,
-    sponsor: &mut SponsorNFT,
+    donor: &mut DonorNFT,
     amount: u128,
     first_name: String,
     last_name: String,
@@ -337,7 +339,7 @@ public fun support_child_books_need(
         manage,
         pool,
         local_pool,
-        sponsor,
+        donor,
         amount,
         first_name,
         last_name,
@@ -356,8 +358,8 @@ public fun support_child_meal_need(
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
     child: &mut Child,
-    sponsor: &mut SponsorNFT,
-    amount: u128,
+    donor: &mut DonorNFT,
+    months: u64,
     start_period: String,
     end_period: String,
     first_name: String,
@@ -378,8 +380,8 @@ public fun support_child_meal_need(
         manage,
         pool,
         local_pool,
-        sponsor,
-        amount,
+        donor,
+        months,
         start_period,
         end_period,
         first_name,
@@ -449,7 +451,7 @@ public fun support_child_special_need_campaign(
     child: &mut Child,
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
-    sponsor: &mut SponsorNFT,
+    donor: &mut DonorNFT,
     amount: u128,
     first_name: String,
     last_name: String,
@@ -466,7 +468,7 @@ public fun support_child_special_need_campaign(
         manage,
         pool,
         local_pool,
-        sponsor,
+        donor,
         amount,
         first_name,
         last_name,
@@ -562,6 +564,43 @@ public fun withdraw_from_books_need_proposal(
         EWithdrawProposalNotOfCampaign,
     );
     withdraw_from_books_need(pool, local_pool, need, proposal, dao, clock, ctx);
+}
+
+public fun create_child_meal_need_withdraw_proposal(
+    manage: &mut Manage,
+    need: &mut MealNeed,
+    child: &mut Child,
+    pool: &mut VndPool,
+    local_pool: &mut LocalPool,
+    description: String,
+    closed_at: u64,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    let (found, _) = vector::index_of(
+        &mut child.books_needs,
+        &get_meal_need_id(need),
+    );
+    assert!(found && get_local_pool_region(local_pool) == child.region, ENeedNotExist);
+    assert!(is_admin_added(manage, ctx) || is_leader_in_pool(local_pool, ctx), ENotAuthorized);
+    create_meal_need_withdraw_proposal(need, pool, local_pool, description, closed_at, clock, ctx);
+}
+
+public fun withdraw_from_meal_need_proposal(
+    pool: &mut VndPool,
+    local_pool: &mut LocalPool,
+    _: &AdminCap,
+    need: &mut MealNeed,
+    proposal: &mut WithDrawProposal,
+    dao: &mut PoolWithdrawDao,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    assert!(
+        is_withdraw_proposal_matched_local_pool(proposal, local_pool),
+        EWithdrawProposalNotOfCampaign,
+    );
+    withdraw_from_meal_need(pool, local_pool, need, proposal, dao, clock, ctx);
 }
 
 public(package) fun add_gift(child: &mut Child, id: ID) {
