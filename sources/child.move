@@ -63,9 +63,6 @@ const EProposalNotOfChild: u64 = 8;
 const EWithdrawProposalNotOfCampaign: u64 = 9;
 const ECampaignNotOfChild: u64 = 10;
 
-// Thêm 1 struct liên kết với sự hỗ trợ từ nhà tự thiện
-// Có thêm thông tin tần suất cập nhật hình ảnh
-
 public struct Child has key {
     id: UID,
     identity_code: String,
@@ -95,6 +92,7 @@ public struct ChildrenCenter has key {
     center_address: String,
     center_phone_number: String,
     image_blob_ids: vector<String>,
+    gifts: vector<ID>,
     uploaded_at: u64,
     updated_at: u64,
 }
@@ -126,6 +124,7 @@ public fun create_children_center(
         center_address: center_address,
         center_phone_number: center_phone_number,
         image_blob_ids: vector[image_blob_id],
+        gifts: vector[],
         uploaded_at: cur_time,
         updated_at: cur_time,
     };
@@ -330,10 +329,7 @@ public fun support_child_books_need(
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
-    assert!(child.region == get_local_pool_region(local_pool), EChildNotMatchedRegion);
-
-    let (found, _) = vector::index_of(&mut child.books_needs, &get_books_need_id(need));
-    assert!(found, ENeedNotExist);
+    validate_child_need(child, local_pool, false, get_books_need_id(need));
     support_books_need(
         need,
         manage,
@@ -371,10 +367,7 @@ public fun support_child_meal_need(
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
-    assert!(child.region == get_local_pool_region(local_pool), EChildNotMatchedRegion);
-
-    let (found, _) = vector::index_of(&mut child.books_needs, &get_meal_need_id(need));
-    assert!(found, ENeedNotExist);
+    validate_child_need(child, local_pool, true, get_meal_need_id(need));
     support_meal_need(
         need,
         manage,
@@ -510,13 +503,14 @@ public fun create_special_need_withdraw_proposal(
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
-    let (found, _) = vector::index_of(
-        &mut child.special_need_campaigns,
-        &get_special_need_campaign_id(campaign),
+    validate_child_need_pre_proposal(
+        child,
+        manage,
+        get_special_need_campaign_id(campaign),
+        local_pool,
+        b"special".to_string(),
+        ctx,
     );
-    assert!(found && get_local_pool_region(local_pool) == child.region, ECampaignNotOfChild);
-    assert!(is_admin_added(manage, ctx) || is_leader_in_pool(local_pool, ctx), ENotAuthorized);
-
     create_withdraw_proposal(
         campaign,
         pool,
@@ -540,12 +534,14 @@ public fun create_child_books_need_withdraw_proposal(
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
-    let (found, _) = vector::index_of(
-        &mut child.books_needs,
-        &get_books_need_id(need),
+    validate_child_need_pre_proposal(
+        child,
+        manage,
+        get_books_need_id(need),
+        local_pool,
+        b"books".to_string(),
+        ctx,
     );
-    assert!(found && get_local_pool_region(local_pool) == child.region, ENeedNotExist);
-    assert!(is_admin_added(manage, ctx) || is_leader_in_pool(local_pool, ctx), ENotAuthorized);
     create_books_need_withdraw_proposal(need, pool, local_pool, description, closed_at, clock, ctx);
 }
 
@@ -577,12 +573,14 @@ public fun create_child_meal_need_withdraw_proposal(
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
-    let (found, _) = vector::index_of(
-        &mut child.books_needs,
-        &get_meal_need_id(need),
+    validate_child_need_pre_proposal(
+        child,
+        manage,
+        get_meal_need_id(need),
+        local_pool,
+        b"meal".to_string(),
+        ctx,
     );
-    assert!(found && get_local_pool_region(local_pool) == child.region, ENeedNotExist);
-    assert!(is_admin_added(manage, ctx) || is_leader_in_pool(local_pool, ctx), ENotAuthorized);
     create_meal_need_withdraw_proposal(need, pool, local_pool, description, closed_at, clock, ctx);
 }
 
@@ -603,14 +601,67 @@ public fun withdraw_from_meal_need_proposal(
     withdraw_from_meal_need(pool, local_pool, need, proposal, dao, clock, ctx);
 }
 
-public(package) fun add_gift(child: &mut Child, id: ID) {
+public(package) fun add_gift_to_child(child: &mut Child, id: ID) {
     vector::push_back(&mut child.gifts, id);
+}
+
+public(package) fun add_gift_to_center(center: &mut ChildrenCenter, id: ID) {
+    vector::push_back(&mut center.gifts, id);
 }
 
 public(package) fun get_child_inner_id(child: &Child): ID {
     child.id.to_inner()
 }
 
+public(package) fun get_center_inner_id(center: &ChildrenCenter): ID {
+    center.id.to_inner()
+}
+
 public(package) fun get_child_region(child: &Child): String {
     child.region
+}
+
+public(package) fun get_center_region(center: &ChildrenCenter): String {
+    center.region
+}
+
+fun validate_child_need(
+    child: &mut Child,
+    local_pool: &mut LocalPool,
+    is_meal_need: bool,
+    need_id: ID,
+) {
+    assert!(child.region == get_local_pool_region(local_pool), EChildNotMatchedRegion);
+    let found = if (!is_meal_need) {
+        let (need_found, _) = vector::index_of(&mut child.books_needs, &need_id);
+        need_found
+    } else {
+        child.meal_need == need_id
+    };
+
+    assert!(found, ENeedNotExist);
+}
+
+fun validate_child_need_pre_proposal(
+    child: &mut Child,
+    manage: &mut Manage,
+    need_id: ID,
+    local_pool: &mut LocalPool,
+    need_type: String,
+    ctx: &mut TxContext,
+) {
+    let found = if (need_type == b"meal".to_string()) {
+        child.meal_need == need_id
+    } else if (need_type == b"bookS".to_string()) {
+        let (need_found, _) = vector::index_of(&child.books_needs, &need_id);
+        need_found
+    } else if (need_type == b"special".to_string()) {
+        let (need_found, _) = vector::index_of(&child.special_need_campaigns, &need_id);
+        need_found
+    } else {
+        false
+    };
+
+    assert!(found && get_local_pool_region(local_pool) == child.region, ENeedNotExist);
+    assert!(is_admin_added(manage, ctx) || is_leader_in_pool(local_pool, ctx), ENotAuthorized);
 }

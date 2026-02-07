@@ -22,7 +22,6 @@ use raise_child::pool::{
     get_withdraw_dao_min_voters,
     get_withdraw_proposal_approvers_number,
     get_withdraw_proposal_refusers_number,
-    create_withdraw_proposal_for_special_need,
     calculate_withdraw_aprroval_ratio,
     get_withdraw_proposal_execute_status,
     split_vnd,
@@ -30,8 +29,7 @@ use raise_child::pool::{
     get_withdraw_proposal_amount,
     get_withdraw_proposal_description,
     get_withdraw_proposal_id,
-    create_withdraw_proposal_for_books_need,
-    create_withdraw_proposal_for_meal_need
+    create_withdraw_proposal_for_child_need
 };
 use raise_child::record::create_tx_record_v2;
 use std::string::String;
@@ -210,27 +208,20 @@ public(package) fun support_books_need(
 ) {
     assert!(amount == need.value, ENotMatchedAmount);
     assert!(vector::length(&need.donations) < vector::length(&need.year_changes), ENeedSupported);
-
-    let donor_id: ID;
-    if (!is_donor_added(manage, ctx)) {
-        donor_id =
-            mint_donor_nft_v2(
-                manage,
-                first_name,
-                last_name,
-                gender,
-                phone_number,
-                email,
-                amount,
-                ctx,
-            );
-    } else {
-        update_donation_after_donate(donor, amount, ctx);
-        donor_id = get_donor_id(donor);
-    };
-
-    mint_vnd(pool, amount, ctx);
-    add_amount_to_local_pool(local_pool, amount);
+    let donor_id = process_suport_need(
+        manage,
+        pool,
+        local_pool,
+        donor,
+        amount,
+        first_name,
+        last_name,
+        gender,
+        phone_number,
+        email,
+        message,
+        ctx,
+    );
     vector::push_back(
         &mut need.donations,
         create_tx_record_v2(
@@ -276,32 +267,26 @@ public(package) fun support_meal_need(
     };
 
     let amount = (months as u128) * need.value;
-    let donor_id: ID;
-    if (!is_donor_added(manage, ctx)) {
-        donor_id =
-            mint_donor_nft_v2(
-                manage,
-                first_name,
-                last_name,
-                gender,
-                phone_number,
-                email,
-                amount,
-                ctx,
-            );
-    } else {
-        update_donation_after_donate(donor, amount, ctx);
-        donor_id = get_donor_id(donor);
-    };
-
-    mint_vnd(pool, amount, ctx);
-    add_amount_to_local_pool(local_pool, amount);
+    let donor_id = process_suport_need(
+        manage,
+        pool,
+        local_pool,
+        donor,
+        amount,
+        first_name,
+        last_name,
+        gender,
+        phone_number,
+        email,
+        message,
+        ctx,
+    );
     vector::push_back(
         &mut need.donations,
         create_tx_record_v2(
             amount,
             b"VND".to_string(),
-            b"Support book need".to_string(),
+            b"Support meal need".to_string(),
             get_local_pool_region(local_pool),
             message,
             clock,
@@ -441,24 +426,20 @@ public(package) fun support_special_need_campaign(
     ctx: &mut TxContext,
 ) {
     assert!(campaign.total_donated + amount <= campaign.target, EDonationPassTarget);
-
-    if (!is_donor_added(manage, ctx)) {
-        mint_donor_nft(
-            manage,
-            first_name,
-            last_name,
-            gender,
-            phone_number,
-            email,
-            amount,
-            ctx,
-        );
-    } else {
-        update_donation_after_donate(donor, amount, ctx);
-    };
-
-    mint_vnd(pool, amount, ctx);
-    add_amount_to_local_pool(local_pool, amount);
+    process_suport_need(
+        manage,
+        pool,
+        local_pool,
+        donor,
+        amount,
+        first_name,
+        last_name,
+        gender,
+        phone_number,
+        email,
+        message,
+        ctx,
+    );
     vector::push_back(
         &mut campaign.donations,
         create_tx_record_v2(
@@ -482,22 +463,15 @@ public(package) fun withdraw_from_campaign(
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
-    let (found, _) = vector::index_of(
-        &mut campaign.withdraw_proposals,
-        &get_withdraw_proposal_id(proposal),
+    process_withdraw_from_need(
+        pool,
+        local_pool,
+        &campaign.withdraw_proposals,
+        proposal,
+        dao,
+        clock,
+        ctx,
     );
-    assert!(found, EWithdrawProposalNotOfCampaign);
-
-    let cur_time = clock::timestamp_ms(clock);
-    assert!(get_withdraw_proposal_close_period(proposal) <= cur_time, EProposalStillPending);
-    assert!(
-        calculate_withdraw_aprroval_ratio(proposal) >= get_withdraw_dao_min_approve_rate(dao),
-        EProposalApproveRateNotPass,
-    );
-    assert!(!get_withdraw_proposal_execute_status(proposal), EWithdrawProposalExecuted);
-
-    split_vnd(pool, proposal, ctx);
-    set_withdraw_proposal_executed(proposal, cur_time);
 
     campaign.withdraw_amount = campaign.withdraw_amount + get_withdraw_proposal_amount(proposal);
     vector::push_back(
@@ -528,11 +502,12 @@ public(package) fun create_withdraw_proposal(
     assert!(withdraw_amount <= budget, EInsufficientAmount);
     vector::push_back(
         &mut campaign.withdraw_proposals,
-        create_withdraw_proposal_for_special_need(
+        create_withdraw_proposal_for_child_need(
             pool,
             local_pool,
             withdraw_amount,
             description,
+            b"special".to_string(),
             closed_at,
             clock,
             ctx,
@@ -556,11 +531,12 @@ public(package) fun create_books_need_withdraw_proposal(
 
     vector::push_back(
         &mut need.withdraw_proposals,
-        create_withdraw_proposal_for_books_need(
+        create_withdraw_proposal_for_child_need(
             pool,
             local_pool,
             need.value,
             description,
+            b"books".to_string(),
             closed_at,
             clock,
             ctx,
@@ -577,22 +553,15 @@ public(package) fun withdraw_from_books_need(
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
-    let (found, _) = vector::index_of(
-        &mut need.withdraw_proposals,
-        &get_withdraw_proposal_id(proposal),
+    process_withdraw_from_need(
+        pool,
+        local_pool,
+        &need.withdraw_proposals,
+        proposal,
+        dao,
+        clock,
+        ctx,
     );
-    assert!(found, EWithdrawProposalNotOfNeed);
-
-    let cur_time = clock::timestamp_ms(clock);
-    assert!(get_withdraw_proposal_close_period(proposal) <= cur_time, EProposalStillPending);
-    assert!(
-        calculate_withdraw_aprroval_ratio(proposal) >= get_withdraw_dao_min_approve_rate(dao),
-        EProposalApproveRateNotPass,
-    );
-    assert!(!get_withdraw_proposal_execute_status(proposal), EWithdrawProposalExecuted);
-
-    split_vnd(pool, proposal, ctx);
-    set_withdraw_proposal_executed(proposal, cur_time);
     vector::push_back(
         &mut need.withdraws_for_need,
         create_tx_record_v2(
@@ -623,11 +592,12 @@ public(package) fun create_meal_need_withdraw_proposal(
 
     vector::push_back(
         &mut need.withdraw_proposals,
-        create_withdraw_proposal_for_meal_need(
+        create_withdraw_proposal_for_child_need(
             pool,
             local_pool,
             need.value,
             description,
+            b"meal".to_string(),
             closed_at,
             clock,
             ctx,
@@ -644,22 +614,15 @@ public(package) fun withdraw_from_meal_need(
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
-    let (found, _) = vector::index_of(
-        &mut need.withdraw_proposals,
-        &get_withdraw_proposal_id(proposal),
+    process_withdraw_from_need(
+        pool,
+        local_pool,
+        &need.withdraw_proposals,
+        proposal,
+        dao,
+        clock,
+        ctx,
     );
-    assert!(found, EWithdrawProposalNotOfNeed);
-
-    let cur_time = clock::timestamp_ms(clock);
-    assert!(get_withdraw_proposal_close_period(proposal) <= cur_time, EProposalStillPending);
-    assert!(
-        calculate_withdraw_aprroval_ratio(proposal) >= get_withdraw_dao_min_approve_rate(dao),
-        EProposalApproveRateNotPass,
-    );
-    assert!(!get_withdraw_proposal_execute_status(proposal), EWithdrawProposalExecuted);
-
-    split_vnd(pool, proposal, ctx);
-    set_withdraw_proposal_executed(proposal, cur_time);
     vector::push_back(
         &mut need.withdraws_for_need,
         create_tx_record_v2(
@@ -699,4 +662,65 @@ public(package) fun get_special_need_proposal_id(proposal: &mut SpecialNeedPropo
 
 public(package) fun get_special_need_campaign_id(campaign: &mut SpecialNeedCampaign): ID {
     campaign.id.to_inner()
+}
+
+fun process_suport_need(
+    manage: &mut Manage,
+    pool: &mut VndPool,
+    local_pool: &mut LocalPool,
+    donor: &mut DonorNFT,
+    amount: u128,
+    first_name: String,
+    last_name: String,
+    gender: String,
+    phone_number: String,
+    email: String,
+    message: String,
+    ctx: &mut TxContext,
+): ID {
+    let donor_id = if (!is_donor_added(manage, ctx)) {
+        mint_donor_nft_v2(
+            manage,
+            first_name,
+            last_name,
+            gender,
+            phone_number,
+            email,
+            amount,
+            ctx,
+        )
+    } else {
+        update_donation_after_donate(donor, amount, ctx);
+        get_donor_id(donor)
+    };
+
+    mint_vnd(pool, amount, ctx);
+    add_amount_to_local_pool(local_pool, amount);
+    donor_id
+}
+
+fun process_withdraw_from_need(
+    pool: &mut VndPool,
+    local_pool: &mut LocalPool,
+    proposals: &vector<ID>,
+    proposal: &mut WithDrawProposal,
+    dao: &mut PoolWithdrawDao,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    let (found, _) = vector::index_of(
+        proposals,
+        &get_withdraw_proposal_id(proposal),
+    );
+    assert!(found, EWithdrawProposalNotOfNeed);
+
+    let cur_time = clock::timestamp_ms(clock);
+    assert!(get_withdraw_proposal_close_period(proposal) <= cur_time, EProposalStillPending);
+    assert!(
+        calculate_withdraw_aprroval_ratio(proposal) >= get_withdraw_dao_min_approve_rate(dao),
+        EProposalApproveRateNotPass,
+    );
+    assert!(!get_withdraw_proposal_execute_status(proposal), EWithdrawProposalExecuted);
+    split_vnd(pool, proposal, ctx);
+    set_withdraw_proposal_executed(proposal, cur_time);
 }

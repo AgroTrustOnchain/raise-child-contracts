@@ -509,6 +509,55 @@ public fun create_withdraw_proposal(
     transfer::share_object(proposal);
 }
 
+public(package) fun create_withdraw_proposal_for_child_need(
+    pool: &mut VndPool,
+    local_pool: &mut LocalPool,
+    withdraw_amount: u128,
+    description: String,
+    need_type: String,
+    closed_at: u64,
+    clock: &Clock,
+    ctx: &mut TxContext,
+): ID {
+    let cur_time = clock::timestamp_ms(clock);
+    assert!(closed_at > cur_time, EPassPeriod);
+
+    let purpose = if (need_type == b"books".to_string()) {
+        b"Child Books Need".to_string()
+    } else if (need_type == b"meal".to_string()) {
+        b"Child Meal Need".to_string()
+    } else {
+        b"Child Special Need".to_string()
+    };
+
+    let proposal = WithDrawProposal {
+        id: object::new(ctx),
+        pool_id: local_pool.id.to_inner(),
+        pool_name: local_pool.region,
+        creator: ctx.sender(),
+        withdraw_amount: withdraw_amount,
+        description: description,
+        approvers: vector[],
+        refusers: vector[],
+        refuse_reasons: vector[],
+        approve_weight: 0,
+        refuse_weight: 0,
+        is_executed: false,
+        is_from_local_pool: true,
+        purpose: purpose,
+        approved_periods: vector[],
+        refused_periods: vector[],
+        created_at: cur_time,
+        updated_at: cur_time,
+        closed_at: closed_at,
+    };
+
+    let id = proposal.id.to_inner();
+    vector::push_back(&mut pool.withdraw_proposals, id);
+    transfer::share_object(proposal);
+    id
+}
+
 public(package) fun create_withdraw_proposal_for_special_need(
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
