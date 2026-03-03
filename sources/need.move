@@ -36,6 +36,7 @@ use std::string::String;
 use std::vector::push_back;
 use sui::clock::{Self, Clock};
 use sui::table::{Self, Table};
+use sui::vec_map::{Self, VecMap};
 
 const ENotMatchedAmount: u64 = 1;
 const ENeedSupported: u64 = 2;
@@ -54,22 +55,24 @@ const EWithdrawProposalNotOfCampaign: u64 = 14;
 const ENeedHasBeenFunded: u64 = 15;
 const EWithdrawProposalNotOfNeed: u64 = 16;
 const EInvalidSupportMonths: u64 = 17;
+const EChildProvidedMeal: u64 = 18;
 
-const MIN_SPECIAL_NEED_TARGET: u128 = 100_000;
-const PRESISION_FACTOR: u128 = 1_000;
+const MIN_SPECIAL_NEED_TARGET: u64 = 100_000;
+const PRESISION_FACTOR: u64 = 1_000;
 
 public struct SpecialNeedDao has key {
     id: UID,
-    min_approved_rate: u128,
+    min_approved_rate: u64,
     min_voters: u64,
 }
 
 public struct BooksNeed has key {
     id: UID,
+    child: ID,
     year: u64,
     year_changes: vector<u64>,
     semester: u64,
-    value: u128,
+    value: u64,
     donors: vector<ID>,
     donations: vector<ID>,
     withdraw_proposals: vector<ID>,
@@ -81,15 +84,33 @@ public struct MealSupportDuration has store {
     end_period: String,
 }
 
+/// Table ver
+// public struct MealNeed has key {
+//     id: UID,
+//     year: u64,
+//     value: u64,
+//     donors: vector<ID>,
+//     donations: vector<ID>,
+//     durations: vector<MealSupportDuration>,
+//     total_supported_months: u64,
+//     supported_years: Table<u64, u64>,
+//     withdraw_proposals: vector<ID>,
+//     withdraws_for_need: vector<ID>,
+// }
+
 public struct MealNeed has key {
     id: UID,
+    child: ID,
     year: u64,
-    value: u128,
+    value: u64,
     donors: vector<ID>,
     donations: vector<ID>,
     durations: vector<MealSupportDuration>,
     total_supported_months: u64,
-    supported_years: Table<u64, u64>,
+    supported_years: VecMap<u64, u64>,
+    provide_meal_dates: vector<String>,
+    provide_meal_periods: vector<u64>,
+    provide_meal_staffs: vector<address>,
     withdraw_proposals: vector<ID>,
     withdraws_for_need: vector<ID>,
 }
@@ -98,12 +119,12 @@ public struct SpecialNeedProposal has key {
     id: UID,
     child: ID,
     creator: address,
-    target: u128,
+    target: u64,
     description: String,
     approvers: vector<address>,
     refusers: vector<address>,
-    approve_weight: u128,
-    refuse_weight: u128,
+    approve_weight: u64,
+    refuse_weight: u64,
     refuse_reasons: vector<String>,
     approved_periods: vector<u64>,
     refused_periods: vector<u64>,
@@ -117,15 +138,21 @@ public struct SpecialNeedCampaign has key {
     id: UID,
     child: ID,
     creator: address,
-    target: u128,
+    target: u64,
     description: String,
-    total_donated: u128,
-    withdraw_amount: u128,
+    total_donated: u64,
+    withdraw_amount: u64,
     donations: vector<ID>,
     withdraws: vector<ID>,
     withdraw_proposals: vector<ID>,
     created_at: u64,
     updated_at: u64,
+}
+
+public struct BooksNeedWithdrawDates has key {
+    id: UID,
+    first_semester_date: String,
+    second_semester_date: String,
 }
 
 fun init(ctx: &mut TxContext) {
@@ -134,12 +161,18 @@ fun init(ctx: &mut TxContext) {
         min_approved_rate: 8_000, // 80%
         min_voters: 10,
     });
+
+    transfer::share_object(BooksNeedWithdrawDates {
+        id: object::new(ctx),
+        first_semester_date: b"01/10".to_string(),
+        second_semester_date: b"07/01".to_string(),
+    });
 }
 
 public fun edit_special_need_dao_rate(
     _: &AdminCap,
     dao: &mut SpecialNeedDao,
-    min_rate: u128,
+    min_rate: u64,
     min_voters: u64,
 ) {
     if (min_rate > 0) {
@@ -151,9 +184,10 @@ public fun edit_special_need_dao_rate(
     };
 }
 
-public(package) fun init_books_need(semester: u64, year: u64, ctx: &mut TxContext): ID {
+public(package) fun init_books_need(semester: u64, year: u64, child: ID, ctx: &mut TxContext): ID {
     let need = BooksNeed {
         id: object::new(ctx),
+        child: child,
         year: year,
         year_changes: vector[year],
         semester: semester,
@@ -170,16 +204,41 @@ public(package) fun init_books_need(semester: u64, year: u64, ctx: &mut TxContex
     id
 }
 
-public(package) fun init_meal_need(year: u64, ctx: &mut TxContext): ID {
+/// Table ver
+// public(package) fun init_meal_need(year: u64, ctx: &mut TxContext): ID {
+//     let need = MealNeed {
+//         id: object::new(ctx),
+//         year: year,
+//         value: 0,
+//         donors: vector[],
+//         donations: vector[],
+//         durations: vector[],
+//         total_supported_months: 0,
+//         supported_years: table::new<u64, u64>(ctx),
+//         withdraw_proposals: vector[],
+//         withdraws_for_need: vector[],
+//     };
+
+//     let id = need.id.to_inner();
+//     transfer::share_object(need);
+
+//     id
+// }
+
+public(package) fun init_meal_need(year: u64, child: ID, ctx: &mut TxContext): ID {
     let need = MealNeed {
         id: object::new(ctx),
+        child: child,
         year: year,
         value: 0,
         donors: vector[],
         donations: vector[],
         durations: vector[],
         total_supported_months: 0,
-        supported_years: table::new<u64, u64>(ctx),
+        supported_years: vec_map::empty<u64, u64>(),
+        provide_meal_dates: vector[],
+        provide_meal_periods: vector[],
+        provide_meal_staffs: vector[],
         withdraw_proposals: vector[],
         withdraws_for_need: vector[],
     };
@@ -190,13 +249,28 @@ public(package) fun init_meal_need(year: u64, ctx: &mut TxContext): ID {
     id
 }
 
+public(package) fun confirm_provide_meal(
+    need: &mut MealNeed,
+    image_blob_id: String,
+    provide_date: String,
+    cur_time: u64,
+    ctx: &mut TxContext,
+) {
+    let (found, _) = vector::index_of(&mut need.provide_meal_dates, &provide_date);
+    assert!(!found, EChildProvidedMeal);
+
+    vector::push_back(&mut need.provide_meal_dates, provide_date);
+    vector::push_back(&mut need.provide_meal_periods, cur_time);
+    vector::push_back(&mut need.provide_meal_staffs, ctx.sender());
+}
+
 public(package) fun support_books_need(
     need: &mut BooksNeed,
     manage: &mut Manage,
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
     donor: &mut DonorNFT,
-    amount: u128,
+    amount: u64,
     first_name: String,
     last_name: String,
     gender: String,
@@ -237,13 +311,77 @@ public(package) fun support_books_need(
     vector::push_back(&mut need.donors, donor_id);
 }
 
+/// Table ver
+// public(package) fun support_meal_need(
+//     need: &mut MealNeed,
+//     manage: &mut Manage,
+//     pool: &mut VndPool,
+//     local_pool: &mut LocalPool,
+//     donor: &mut DonorNFT,
+//     months: u64,
+//     start_period: String,
+//     end_period: String,
+//     first_name: String,
+//     last_name: String,
+//     gender: String,
+//     phone_number: String,
+//     email: String,
+//     message: String,
+//     clock: &Clock,
+//     ctx: &mut TxContext,
+// ) {
+//     // let mut is_valid_support = months >= 1 && months <= 12;
+//     assert!(months >= 1 && months <= 12, EInvalidSupportValue);
+//     if (table::contains(&need.supported_years, need.year)) {
+//         let supported_months = table::borrow_mut(&mut need.supported_years, need.year);
+//         let total_months = *supported_months + months;
+//         assert!(total_months <= 12, EInvalidSupportValue);
+//         *supported_months = total_months;
+//     } else {
+//         table::add(&mut need.supported_years, need.year, months);
+//     };
+
+//     let amount = (months as u64) * need.value;
+//     let donor_id = process_suport_need(
+//         manage,
+//         pool,
+//         local_pool,
+//         donor,
+//         amount,
+//         first_name,
+//         last_name,
+//         gender,
+//         phone_number,
+//         email,
+//         message,
+//         ctx,
+//     );
+//     vector::push_back(
+//         &mut need.donations,
+//         create_tx_record_v2(
+//             amount,
+//             b"VND".to_string(),
+//             b"Support meal need".to_string(),
+//             get_local_pool_region(local_pool),
+//             message,
+//             clock,
+//             ctx,
+//         ),
+//     );
+//     vector::push_back(&mut need.donors, donor_id);
+//     vector::push_back(
+//         &mut need.durations,
+//         MealSupportDuration { start_period: start_period, end_period: end_period },
+//     );
+// }
+
 public(package) fun support_meal_need(
     need: &mut MealNeed,
     manage: &mut Manage,
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
     donor: &mut DonorNFT,
-    months: u64,
+    amount: u64,
     start_period: String,
     end_period: String,
     first_name: String,
@@ -256,17 +394,18 @@ public(package) fun support_meal_need(
     ctx: &mut TxContext,
 ) {
     // let mut is_valid_support = months >= 1 && months <= 12;
+    let months = (amount / need.value as u64);
     assert!(months >= 1 && months <= 12, EInvalidSupportValue);
-    if (table::contains(&need.supported_years, need.year)) {
-        let supported_months = table::borrow_mut(&mut need.supported_years, need.year);
+    if (vec_map::contains(&need.supported_years, &need.year)) {
+        let supported_months = vec_map::get_mut(&mut need.supported_years, &need.year);
         let total_months = *supported_months + months;
         assert!(total_months <= 12, EInvalidSupportValue);
         *supported_months = total_months;
     } else {
-        table::add(&mut need.supported_years, need.year, months);
+        vec_map::insert(&mut need.supported_years, need.year, months);
     };
 
-    let amount = (months as u128) * need.value;
+    let amount = (months as u64) * need.value;
     let donor_id = process_suport_need(
         manage,
         pool,
@@ -302,7 +441,7 @@ public(package) fun support_meal_need(
 
 public(package) fun create_special_need_proposal(
     child_id: ID,
-    target: u128,
+    target: u64,
     description: String,
     closed_at: u64,
     clock: &Clock,
@@ -337,9 +476,9 @@ public(package) fun create_special_need_proposal(
 }
 
 public fun vote_special_need_proposal(
+    dao: &mut SpecialNeedDao,
     proposal: &mut SpecialNeedProposal,
     donor: &mut DonorNFT,
-    dao: &mut SpecialNeedDao,
     is_approve: bool,
     refuse_reason: String,
     clock: &Clock,
@@ -415,7 +554,7 @@ public(package) fun support_special_need_campaign(
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
     donor: &mut DonorNFT,
-    amount: u128,
+    amount: u64,
     first_name: String,
     last_name: String,
     gender: String,
@@ -492,7 +631,7 @@ public(package) fun create_withdraw_proposal(
     campaign: &mut SpecialNeedCampaign,
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
-    withdraw_amount: u128,
+    withdraw_amount: u64,
     description: String,
     closed_at: u64,
     clock: &Clock,
@@ -645,7 +784,7 @@ public(package) fun get_meal_need_id(need: &mut MealNeed): ID {
     need.id.to_inner()
 }
 
-public(package) fun calculate_aprroval_ratio(proposal: &mut SpecialNeedProposal): u128 {
+public(package) fun calculate_aprroval_ratio(proposal: &mut SpecialNeedProposal): u64 {
     let total = proposal.approve_weight + proposal.refuse_weight;
     if (total == 0) return 0;
 
@@ -669,7 +808,7 @@ fun process_suport_need(
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
     donor: &mut DonorNFT,
-    amount: u128,
+    amount: u64,
     first_name: String,
     last_name: String,
     gender: String,
@@ -724,3 +863,40 @@ fun process_withdraw_from_need(
     split_vnd(pool, proposal, ctx);
     set_withdraw_proposal_executed(proposal, cur_time);
 }
+
+// use sui::vec_map::{Self, VecMap};
+
+// public struct MealNeed has key {
+//     id: UID,
+//     // ... các trường khác
+//     supported_years: VecMap<u64, u64>,
+// }
+
+// let map = vec_map::empty<u64, u64>();
+
+// /// Thêm một năm mới vào danh sách hỗ trợ
+// public entry fun add_year(meal_need: &mut MealNeed, year: u64, months: u64) {
+//     // Kiểm tra xem key đã tồn tại chưa để tránh lỗi abort
+//     assert!(!vec_map::contains(&meal_need.supported_years, &year), 0);
+
+//     vec_map::insert(&mut meal_need.supported_years, year, months);
+// }
+
+// /// Chỉnh sửa số tháng của một năm đã tồn tại
+// public entry fun edit_year(meal_need: &mut MealNeed, year: u64, new_months: u64) {
+//     // 1. Lấy tham chiếu có thể thay đổi (mutable reference) của giá trị dựa trên key
+//     let value_mut = vec_map::get_mut(&mut meal_need.supported_years, &year);
+
+//     // 2. Cập nhật giá trị mới
+//     *value_mut = new_months;
+// }
+
+// /// Hàm "Upsert" (Nếu chưa có thì thêm, có rồi thì sửa)
+// public entry fun upsert_year(meal_need: &mut MealNeed, year: u64, months: u64) {
+//     if (vec_map::contains(&meal_need.supported_years, &year)) {
+//         let value_mut = vec_map::get_mut(&mut meal_need.supported_years, &year);
+//         *value_mut = months;
+//     } else {
+//         vec_map::insert(&mut meal_need.supported_years, year, months);
+//     }
+// }

@@ -12,7 +12,7 @@ public struct TransactionRecord has key {
     action_type: String,
     pool_name: String,
     message: String,
-    amount: u128,
+    amount: u64,
     coin_type: String,
     created_at: u64,
 }
@@ -23,7 +23,7 @@ public struct TransactionRecordEvent has copy, drop {
     action_type: String,
     pool_name: String,
     message: String,
-    amount: u128,
+    amount: u64,
     coin_type: String,
     created_at: u64,
 }
@@ -79,7 +79,7 @@ public struct TransactionRecordEvent has copy, drop {
 // }
 
 public(package) fun create_tx_record(
-    amount: u128,
+    amount: u64,
     coin_type: String,
     action_type: String,
     pool_name: String,
@@ -118,7 +118,7 @@ public(package) fun create_tx_record(
 }
 
 public(package) fun create_tx_record_v2(
-    amount: u128,
+    amount: u64,
     coin_type: String,
     action_type: String,
     pool_name: String,
@@ -159,7 +159,7 @@ public(package) fun create_tx_record_v2(
 }
 
 public(package) fun create_tx_record_with_address(
-    amount: u128,
+    amount: u64,
     coin_type: String,
     action_type: String,
     pool_name: String,
@@ -197,7 +197,7 @@ public(package) fun create_tx_record_with_address(
 }
 
 public(package) fun create_tx_record_with_address_v2(
-    amount: u128,
+    amount: u64,
     coin_type: String,
     action_type: String,
     pool_name: String,

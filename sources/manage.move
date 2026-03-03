@@ -351,7 +351,7 @@ public(package) fun add_children_center_to_manage(
 ) {
     let (found_region, region_idx) = vector::index_of(&mut manage.local_regions, &region);
     let status_ref = vector::borrow_mut(&mut manage.center_confirm_statuses, region_idx);
-    assert!(found_region && *status_ref, EInvalidAddCenter);
+    assert!(found_region && !*status_ref, EInvalidAddCenter);
 
     let center_ref = vector::borrow_mut(&mut manage.children_centers, region_idx);
     *center_ref = id;

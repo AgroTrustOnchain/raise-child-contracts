@@ -1,6 +1,5 @@
 module raise_child::staff;
 
-use raise_child::child::create_children_center;
 use raise_child::manage::{
     Manage,
     add_volunteer_to_manage,
@@ -21,7 +20,7 @@ use raise_child::manage::{
 };
 use raise_child::pool::{VndPool, LocalPool, add_leader_to_pool};
 use std::string::{Self, String, utf8};
-use std::u128::to_string;
+use std::u64::to_string;
 use sui::clock::{Self, Clock};
 use sui::url::{Url, new_unsafe_from_bytes};
 
@@ -322,4 +321,8 @@ public fun register_local_leader(
 
 public(package) fun is_staff_matched_region(staff: &StaffNFT, region: String): bool {
     staff.region == region
+}
+
+public(package) fun get_staff_region(staff: &StaffNFT): String {
+    staff.region
 }

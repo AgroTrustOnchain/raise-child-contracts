@@ -14,7 +14,7 @@ public struct DonorNFT has key {
     gender: String,
     phone_number: String,
     email: String,
-    total_donation: u128,
+    total_donation: u64,
     name: String,
     url: Url,
 }
@@ -42,7 +42,7 @@ public(package) fun mint_donor_nft(
     gender: String,
     phone_number: String,
     email: String,
-    amount: u128,
+    amount: u64,
     ctx: &mut TxContext,
 ) {
     if (!is_donor_added(manage, ctx)) {
@@ -72,7 +72,7 @@ public(package) fun mint_donor_nft_v2(
     gender: String,
     phone_number: String,
     email: String,
-    amount: u128,
+    amount: u64,
     ctx: &mut TxContext,
 ): ID {
     let owner = ctx.sender();
@@ -97,13 +97,13 @@ public(package) fun mint_donor_nft_v2(
 
 public(package) fun update_donation_after_donate(
     donor: &mut DonorNFT,
-    amount: u128,
+    amount: u64,
     ctx: &mut TxContext,
 ) {
     donor.total_donation = donor.total_donation + amount;
 }
 
-public(package) fun get_donor_donate_amount(donor: &mut DonorNFT, ctx: &mut TxContext): u128 {
+public(package) fun get_donor_donate_amount(donor: &mut DonorNFT, ctx: &mut TxContext): u64 {
     donor.total_donation
 }
 

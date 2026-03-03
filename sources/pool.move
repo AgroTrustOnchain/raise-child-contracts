@@ -23,6 +23,8 @@ use std::vector::push_back;
 use sui::balance::{Self, Balance};
 use sui::clock::{Self, Clock};
 use sui::coin::{Self, TreasuryCap};
+use sui::event::{Self, emit};
+use sui::transfer::share_object;
 use sui::tx_context::TxContext;
 
 const ENotAuthorized: u64 = 1;
@@ -39,9 +41,9 @@ const EProposalApproveRateNotPass: u64 = 11;
 const ENotMatchedPoolInWithdraw: u64 = 12;
 const ENotEnoughVoters: u64 = 13;
 
-const WITHDRAW_MIN_AMOUNT: u128 = 2_000;
-const WITHDRAW_LIMIT_AMOUNT: u128 = 20_000_000;
-const PRESISION_FACTOR: u128 = 1_000;
+const WITHDRAW_MIN_AMOUNT: u64 = 2_000;
+const WITHDRAW_LIMIT_AMOUNT: u64 = 20_000_000;
+const PRESISION_FACTOR: u64 = 1_000;
 
 // public struct VndPool has key {
 //     id: UID,
@@ -49,7 +51,7 @@ const PRESISION_FACTOR: u128 = 1_000;
 //     balance: Balance<VND>,
 //     local_pools: vector<ID>,
 //     withdraw_proposals: vector<ID>,
-//     total_amount: u128,
+//     total_amount: u64,
 // }
 
 public struct VndPool has key {
@@ -58,19 +60,19 @@ public struct VndPool has key {
     balance: Balance<VND>,
     local_pools: vector<ID>,
     withdraw_proposals: vector<ID>,
-    total_amount: u128,
+    total_amount: u64,
 }
 
 public struct LocalPool has key {
     id: UID,
     region: String,
     mods: vector<address>,
-    total_amount: u128,
+    total_amount: u64,
 }
 
 public struct PoolWithdrawDao has key {
     id: UID,
-    min_approved_rate: u128,
+    min_approved_rate: u64,
     min_voters: u64,
 }
 
@@ -79,12 +81,12 @@ public struct WithDrawProposal has key {
     pool_id: ID,
     pool_name: String,
     creator: address,
-    withdraw_amount: u128,
+    withdraw_amount: u64,
     description: String,
     approvers: vector<address>,
     refusers: vector<address>,
-    approve_weight: u128,
-    refuse_weight: u128,
+    approve_weight: u64,
+    refuse_weight: u64,
     refuse_reasons: vector<String>,
     is_executed: bool,
     is_from_local_pool: bool,
@@ -94,6 +96,10 @@ public struct WithDrawProposal has key {
     created_at: u64,
     updated_at: u64,
     closed_at: u64,
+}
+
+public struct WithdrawProposalCreated has copy, drop {
+    id: ID,
 }
 
 fun init(ctx: &mut TxContext) {
@@ -113,6 +119,13 @@ fun init(ctx: &mut TxContext) {
     //     withdraw_proposals: vector[],
     //     total_amount: 0,
     // });
+
+    transfer::share_object(LocalPool {
+        id: object::new(ctx),
+        region: b"".to_string(),
+        mods: vector[],
+        total_amount: 0,
+    });
 
     transfer::share_object(PoolWithdrawDao {
         id: object::new(ctx),
@@ -135,7 +148,7 @@ public entry fun init_pool(cap: TreasuryCap<VND>, ctx: &mut TxContext) {
 public fun edit_withdraw_dao_rate(
     _: &AdminCap,
     dao: &mut PoolWithdrawDao,
-    min_rate: u128,
+    min_rate: u64,
     min_voters: u64,
 ) {
     if (min_rate > 0) {
@@ -152,7 +165,7 @@ public fun edit_withdraw_dao_rate(
 //     pool: &mut VndPool,
 //     treausury_cap: &mut TreasuryCap<VND>,
 //     donor: &mut DonorNFT,
-//     amount: u128,
+//     amount: u64,
 //     first_name: String,
 //     last_name: String,
 //     gender: String,
@@ -192,7 +205,7 @@ public fun donate_to_pool(
     manage: &mut Manage,
     pool: &mut VndPool,
     donor: &mut DonorNFT,
-    amount: u128,
+    amount: u64,
     first_name: String,
     last_name: String,
     gender: String,
@@ -234,7 +247,7 @@ public fun donate_to_pool(
 //     local_pool: &mut LocalPool,
 //     treausury_cap: &mut TreasuryCap<VND>,
 //     donor: &mut DonorNFT,
-//     amount: u128,
+//     amount: u64,
 //     first_name: String,
 //     last_name: String,
 //     gender: String,
@@ -277,7 +290,7 @@ public fun donate_to_local_pool(
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
     donor: &mut DonorNFT,
-    amount: u128,
+    amount: u64,
     first_name: String,
     last_name: String,
     gender: String,
@@ -315,7 +328,7 @@ public fun donate_to_local_pool(
     create_tx_record(amount, coin_type, action_type, local_pool.region, message, clock, ctx);
 }
 
-public(package) fun mint_vnd(pool: &mut VndPool, amount: u128, ctx: &mut TxContext) {
+public(package) fun mint_vnd(pool: &mut VndPool, amount: u64, ctx: &mut TxContext) {
     let vnd = coin::mint(&mut pool.treasury_cap, (amount as u64), ctx);
     balance::join(&mut pool.balance, coin::into_balance(vnd));
     pool.total_amount = pool.total_amount + amount;
@@ -452,7 +465,7 @@ public fun create_withdraw_proposal(
     manage: &mut Manage,
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
-    withdraw_amount: u128,
+    withdraw_amount: u64,
     description: String,
     is_from_local_pool: bool,
     closed_at: u64,
@@ -462,7 +475,7 @@ public fun create_withdraw_proposal(
     let cur_time = clock::timestamp_ms(clock);
     assert!(closed_at > cur_time, EPassPeriod);
 
-    let amount: u128;
+    let amount: u64;
     let pool_id: ID;
     let pool_name: String;
     let mut is_authorized = is_admin_added(manage, ctx);
@@ -505,14 +518,17 @@ public fun create_withdraw_proposal(
         closed_at: closed_at,
     };
 
-    vector::push_back(&mut pool.withdraw_proposals, proposal.id.to_inner());
+    let id = proposal.id.to_inner();
+
+    vector::push_back(&mut pool.withdraw_proposals, id);
     transfer::share_object(proposal);
+    event::emit(WithdrawProposalCreated { id });
 }
 
 public(package) fun create_withdraw_proposal_for_child_need(
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
-    withdraw_amount: u128,
+    withdraw_amount: u64,
     description: String,
     need_type: String,
     closed_at: u64,
@@ -555,13 +571,14 @@ public(package) fun create_withdraw_proposal_for_child_need(
     let id = proposal.id.to_inner();
     vector::push_back(&mut pool.withdraw_proposals, id);
     transfer::share_object(proposal);
+    event::emit(WithdrawProposalCreated { id });
     id
 }
 
 public(package) fun create_withdraw_proposal_for_special_need(
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
-    withdraw_amount: u128,
+    withdraw_amount: u64,
     description: String,
     closed_at: u64,
     clock: &Clock,
@@ -595,13 +612,14 @@ public(package) fun create_withdraw_proposal_for_special_need(
     let id = proposal.id.to_inner();
     vector::push_back(&mut pool.withdraw_proposals, id);
     transfer::share_object(proposal);
+    event::emit(WithdrawProposalCreated { id });
     id
 }
 
 public(package) fun create_withdraw_proposal_for_books_need(
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
-    withdraw_amount: u128,
+    withdraw_amount: u64,
     description: String,
     closed_at: u64,
     clock: &Clock,
@@ -641,7 +659,7 @@ public(package) fun create_withdraw_proposal_for_books_need(
 public(package) fun create_withdraw_proposal_for_meal_need(
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
-    withdraw_amount: u128,
+    withdraw_amount: u64,
     description: String,
     closed_at: u64,
     clock: &Clock,
@@ -712,7 +730,7 @@ public fun vote_withdraw_proposal(
     proposal.updated_at = cur_time;
 }
 
-public(package) fun calculate_withdraw_aprroval_ratio(proposal: &mut WithDrawProposal): u128 {
+public(package) fun calculate_withdraw_aprroval_ratio(proposal: &mut WithDrawProposal): u64 {
     let total = proposal.approve_weight + proposal.refuse_weight;
     if (total == 0) return 0;
 
@@ -727,7 +745,7 @@ public(package) fun get_local_pool_region(pool: &mut LocalPool): String {
     pool.region
 }
 
-public(package) fun add_amount_to_local_pool(pool: &mut LocalPool, amount: u128) {
+public(package) fun add_amount_to_local_pool(pool: &mut LocalPool, amount: u64) {
     pool.total_amount = pool.total_amount + amount;
 }
 
@@ -740,7 +758,7 @@ public(package) fun get_withdraw_proposal_close_period(proposal: &mut WithDrawPr
     proposal.closed_at
 }
 
-public(package) fun get_withdraw_dao_min_approve_rate(dao: &mut PoolWithdrawDao): u128 {
+public(package) fun get_withdraw_dao_min_approve_rate(dao: &mut PoolWithdrawDao): u64 {
     dao.min_approved_rate
 }
 
@@ -765,7 +783,7 @@ public(package) fun set_withdraw_proposal_executed(proposal: &mut WithDrawPropos
     proposal.updated_at = cur_time;
 }
 
-public(package) fun get_withdraw_proposal_amount(proposal: &mut WithDrawProposal): u128 {
+public(package) fun get_withdraw_proposal_amount(proposal: &mut WithDrawProposal): u64 {
     proposal.withdraw_amount
 }
 

@@ -19,6 +19,7 @@ use raise_child::need::{
     SpecialNeedDao,
     init_books_need,
     init_meal_need,
+    confirm_provide_meal,
     get_books_need_id,
     get_meal_need_id,
     support_books_need,
@@ -46,6 +47,7 @@ use raise_child::pool::{
     is_leader_in_pool,
     is_withdraw_proposal_matched_local_pool
 };
+use raise_child::staff::{StaffNFT, get_staff_region};
 use std::ascii::index_of;
 use std::string::String;
 use sui::clock::{Self, Clock};
@@ -93,6 +95,7 @@ public struct ChildrenCenter has key {
     center_phone_number: String,
     image_blob_ids: vector<String>,
     gifts: vector<ID>,
+    all_gifts: vector<ID>,
     uploaded_at: u64,
     updated_at: u64,
 }
@@ -125,6 +128,7 @@ public fun create_children_center(
         center_phone_number: center_phone_number,
         image_blob_ids: vector[image_blob_id],
         gifts: vector[],
+        all_gifts: vector[],
         uploaded_at: cur_time,
         updated_at: cur_time,
     };
@@ -181,6 +185,7 @@ public fun upload_center_phone_number(
 
 public fun add_child(
     manage: &mut Manage,
+    center: &mut ChildrenCenter,
     identity_code: String,
     first_name: String,
     last_name: String,
@@ -192,10 +197,13 @@ public fun add_child(
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
+    assert!(center.region == region, EChildNotMatchedRegion);
     let cur_time = clock::timestamp_ms(clock);
 
+    let uid = object::new(ctx);
+    let id = uid.to_inner();
     let mut child = Child {
-        id: object::new(ctx),
+        id: uid,
         identity_code: identity_code,
         first_name: first_name,
         last_name: last_name,
@@ -208,18 +216,16 @@ public fun add_child(
         upload_image_time: vector[],
         dynamic_fields: vector[],
         gifts: vector[],
-        books_needs: vector[init_books_need(1, year, ctx), init_books_need(2, year, ctx)],
-        meal_need: init_meal_need(year, ctx),
+        books_needs: vector[init_books_need(1, year, id, ctx), init_books_need(2, year, id, ctx)],
+        meal_need: init_meal_need(year, id, ctx),
         special_need_proposals: vector[],
         special_need_campaigns: vector[],
         uploaded_by: ctx.sender(),
         uploaded_at: cur_time,
         updated_at: cur_time,
     };
-    let id = child.id.to_inner();
 
     transfer::share_object(child);
-
     add_child_to_manage(manage, id, ctx);
 }
 
@@ -313,13 +319,13 @@ public fun remove_u64_metadata(child: &mut Child, key: String, clock: &Clock, ct
 }
 
 public fun support_child_books_need(
-    need: &mut BooksNeed,
     manage: &mut Manage,
     pool: &mut VndPool,
+    need: &mut BooksNeed,
     local_pool: &mut LocalPool,
     child: &mut Child,
     donor: &mut DonorNFT,
-    amount: u128,
+    amount: u64,
     first_name: String,
     last_name: String,
     gender: String,
@@ -349,13 +355,13 @@ public fun support_child_books_need(
 }
 
 public fun support_child_meal_need(
-    need: &mut MealNeed,
     manage: &mut Manage,
     pool: &mut VndPool,
+    need: &mut MealNeed,
     local_pool: &mut LocalPool,
     child: &mut Child,
     donor: &mut DonorNFT,
-    months: u64,
+    amount: u64,
     start_period: String,
     end_period: String,
     first_name: String,
@@ -374,7 +380,7 @@ public fun support_child_meal_need(
         pool,
         local_pool,
         donor,
-        months,
+        amount,
         start_period,
         end_period,
         first_name,
@@ -389,10 +395,10 @@ public fun support_child_meal_need(
 }
 
 public fun create_child_special_need_proposal(
-    child: &mut Child,
     manage: &mut Manage,
+    child: &mut Child,
     pool: &mut LocalPool,
-    target: u128,
+    target: u64,
     description: String,
     closed_at: u64,
     clock: &Clock,
@@ -419,8 +425,8 @@ public fun create_child_special_need_proposal(
 }
 
 public fun confirm_child_special_need_proposal(
-    proposal: &mut SpecialNeedProposal,
     dao: &mut SpecialNeedDao,
+    proposal: &mut SpecialNeedProposal,
     child: &mut Child,
     clock: &Clock,
     ctx: &mut TxContext,
@@ -439,13 +445,13 @@ public fun confirm_child_special_need_proposal(
 }
 
 public fun support_child_special_need_campaign(
-    campaign: &mut SpecialNeedCampaign,
     manage: &mut Manage,
-    child: &mut Child,
     pool: &mut VndPool,
+    campaign: &mut SpecialNeedCampaign,
+    child: &mut Child,
     local_pool: &mut LocalPool,
     donor: &mut DonorNFT,
-    amount: u128,
+    amount: u64,
     first_name: String,
     last_name: String,
     gender: String,
@@ -475,9 +481,9 @@ public fun support_child_special_need_campaign(
 }
 
 public fun withdraw_from_special_need_campaign(
+    _: &AdminCap,
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
-    _: &AdminCap,
     campaign: &mut SpecialNeedCampaign,
     proposal: &mut WithDrawProposal,
     dao: &mut PoolWithdrawDao,
@@ -493,11 +499,11 @@ public fun withdraw_from_special_need_campaign(
 
 public fun create_special_need_withdraw_proposal(
     manage: &mut Manage,
-    campaign: &mut SpecialNeedCampaign,
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
+    campaign: &mut SpecialNeedCampaign,
     child: &mut Child,
-    withdraw_amount: u128,
+    withdraw_amount: u64,
     description: String,
     closed_at: u64,
     clock: &Clock,
@@ -525,10 +531,10 @@ public fun create_special_need_withdraw_proposal(
 
 public fun create_child_books_need_withdraw_proposal(
     manage: &mut Manage,
-    need: &mut BooksNeed,
-    child: &mut Child,
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
+    need: &mut BooksNeed,
+    child: &mut Child,
     description: String,
     closed_at: u64,
     clock: &Clock,
@@ -546,9 +552,9 @@ public fun create_child_books_need_withdraw_proposal(
 }
 
 public fun withdraw_from_books_need_proposal(
+    _: &AdminCap,
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
-    _: &AdminCap,
     need: &mut BooksNeed,
     proposal: &mut WithDrawProposal,
     dao: &mut PoolWithdrawDao,
@@ -564,10 +570,10 @@ public fun withdraw_from_books_need_proposal(
 
 public fun create_child_meal_need_withdraw_proposal(
     manage: &mut Manage,
-    need: &mut MealNeed,
-    child: &mut Child,
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
+    need: &mut MealNeed,
+    child: &mut Child,
     description: String,
     closed_at: u64,
     clock: &Clock,
@@ -585,9 +591,9 @@ public fun create_child_meal_need_withdraw_proposal(
 }
 
 public fun withdraw_from_meal_need_proposal(
+    _: &AdminCap,
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
-    _: &AdminCap,
     need: &mut MealNeed,
     proposal: &mut WithDrawProposal,
     dao: &mut PoolWithdrawDao,
@@ -601,12 +607,31 @@ public fun withdraw_from_meal_need_proposal(
     withdraw_from_meal_need(pool, local_pool, need, proposal, dao, clock, ctx);
 }
 
-public(package) fun add_gift_to_child(child: &mut Child, id: ID) {
+public fun confirm_provide_meal_for_child(
+    child: &mut Child,
+    need: &mut MealNeed,
+    staff: &StaffNFT,
+    image_blob_id: String,
+    provide_date: String,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    assert!(get_staff_region(staff) == child.region, ENotAuthorized);
+    assert!(child.meal_need == get_meal_need_id(need), ENeedNotExist);
+
+    let cur_time = clock::timestamp_ms(clock);
+    confirm_provide_meal(need, image_blob_id, provide_date, cur_time, ctx);
+    child.updated_at = cur_time;
+}
+
+public(package) fun add_gift_to_child(child: &mut Child, center: &mut ChildrenCenter, id: ID) {
     vector::push_back(&mut child.gifts, id);
+    vector::push_back(&mut center.all_gifts, id);
 }
 
 public(package) fun add_gift_to_center(center: &mut ChildrenCenter, id: ID) {
     vector::push_back(&mut center.gifts, id);
+    vector::push_back(&mut center.all_gifts, id);
 }
 
 public(package) fun get_child_inner_id(child: &Child): ID {
@@ -623,6 +648,10 @@ public(package) fun get_child_region(child: &Child): String {
 
 public(package) fun get_center_region(center: &ChildrenCenter): String {
     center.region
+}
+
+public(package) fun is_child_of_center(child: &Child, center: &ChildrenCenter): bool {
+    child.region == center.region
 }
 
 fun validate_child_need(

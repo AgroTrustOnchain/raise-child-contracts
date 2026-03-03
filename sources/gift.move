@@ -8,7 +8,8 @@ use raise_child::child::{
     get_child_inner_id,
     get_child_region,
     get_center_region,
-    get_center_inner_id
+    get_center_inner_id,
+    is_child_of_center
 };
 use raise_child::donor::{DonorNFT, mint_donor_nft, update_donation_after_donate};
 use raise_child::manage::{
@@ -30,6 +31,7 @@ const EInvalidConfirmRecieved: u64 = 4;
 const EMissingRecievedProff: u64 = 5;
 const EAlreadyConfirmed: u64 = 6;
 const ENotStaffInRegion: u64 = 7;
+const EChildNotOfCenter: u64 = 8;
 
 public struct Gift has key {
     id: UID,
@@ -55,11 +57,12 @@ public fun create_gift_for_child(
     manage: &mut Manage,
     donor: &mut DonorNFT,
     child: &mut Child,
+    center: &mut ChildrenCenter,
     tracking_code: String,
     carrier: String,
     gift_image_blob_id: String,
     category: String,
-    amount: u128,
+    amount: u64,
     first_name: String,
     last_name: String,
     gender: String,
@@ -70,6 +73,7 @@ public fun create_gift_for_child(
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
+    assert!(is_child_of_center(child, center), EChildNotOfCenter);
     assert!(amount >= 2000, EInvalidAmount);
     if (!is_donor_added(manage, ctx)) {
         mint_donor_nft(
@@ -119,7 +123,7 @@ public fun create_gift_for_child(
         confirm_recieved_by: sender,
     };
 
-    add_gift_to_child(child, gift.id.to_inner());
+    add_gift_to_child(child, center, gift.id.to_inner());
     transfer::share_object(gift);
 }
 
@@ -131,7 +135,7 @@ public fun create_gift_for_center(
     carrier: String,
     gift_image_blob_id: String,
     category: String,
-    amount: u128,
+    amount: u64,
     first_name: String,
     last_name: String,
     gender: String,
