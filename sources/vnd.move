@@ -11,7 +11,7 @@ fun init(witness: VND, ctx: &mut TxContext) {
         1,
         b"VND",
         b"Viet Nam Dong",
-        b"Native Vietnamese Token in RaiseChild Platform, xu",
+        b"Native Vietnamese Token in AgroTrust Platform, xu",
         option::some(
             url::new_unsafe_from_bytes(
                 b"https://photo.znews.vn/w660/Uploaded/erlu/2014_03_31/xu20132.jpg",

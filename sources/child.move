@@ -14,11 +14,13 @@ use raise_child::manage::{
 use raise_child::need::{
     BooksNeed,
     MealNeed,
+    HealthInsuranceNeed,
     SpecialNeedProposal,
     SpecialNeedCampaign,
     SpecialNeedDao,
     init_books_need,
     init_meal_need,
+    init_health_insurance_need,
     confirm_provide_meal,
     get_books_need_id,
     get_meal_need_id,
@@ -27,29 +29,36 @@ use raise_child::need::{
     create_special_need_proposal,
     get_special_need_proposal_creator,
     get_special_need_proposal_id,
+    get_health_insurance_need_id,
     create_special_need_campaign,
     support_special_need_campaign,
+    support_health_insurance_need,
     withdraw_from_campaign,
     get_special_need_campaign_id,
     create_withdraw_proposal,
     create_books_need_withdraw_proposal,
     withdraw_from_books_need,
     create_meal_need_withdraw_proposal,
-    withdraw_from_meal_need
+    create_health_insurance_need_withdraw_proposal,
+    withdraw_from_meal_need,
+    withdraw_from_health_insurance_need
 };
 use raise_child::pool::{
     VndPool,
     LocalPool,
-    WithDrawProposal,
+    WithdrawProposal,
     PoolWithdrawDao,
     create_local_pool,
     get_local_pool_region,
     is_leader_in_pool,
-    is_withdraw_proposal_matched_local_pool
+    is_withdraw_proposal_matched_local_pool,
+    add_donation_amount_to_specific_need_in_pool
 };
-use raise_child::staff::{StaffNFT, get_staff_region};
+use raise_child::staff::{StaffNFT, get_staff_region, is_staff_matched_region, is_local_leader};
+use raise_child::task::create_proof_of_task;
 use std::ascii::index_of;
 use std::string::String;
+use std::u128::to_string;
 use sui::clock::{Self, Clock};
 use sui::dynamic_field::{Self as df, Self};
 use sui::event::emit;
@@ -80,6 +89,7 @@ public struct Child has key {
     dynamic_fields: vector<String>,
     books_needs: vector<ID>,
     meal_need: ID,
+    health_insurance_need: ID,
     special_need_proposals: vector<ID>,
     special_need_campaigns: vector<ID>,
     gifts: vector<ID>,
@@ -88,13 +98,17 @@ public struct Child has key {
     updated_at: u64,
 }
 
+// task_image_blob_ids: vector<String>,
+// task_actors: vector<address>,
 public struct ChildrenCenter has key {
     id: UID,
     region: String,
     center_address: String,
     center_phone_number: String,
+    child_id: vector<ID>,
     image_blob_ids: vector<String>,
     gifts: vector<ID>,
+    proof_of_tasks: vector<ID>,
     all_gifts: vector<ID>,
     uploaded_at: u64,
     updated_at: u64,
@@ -127,8 +141,10 @@ public fun create_children_center(
         center_address: center_address,
         center_phone_number: center_phone_number,
         image_blob_ids: vector[image_blob_id],
+        child_id: vector[],
         gifts: vector[],
         all_gifts: vector[],
+        proof_of_tasks: vector[],
         uploaded_at: cur_time,
         updated_at: cur_time,
     };
@@ -136,6 +152,23 @@ public fun create_children_center(
     add_children_center_to_manage(manage, cap, region, center.id.to_inner(), ctx);
     create_local_pool(pool, region, leaders, ctx);
     transfer::share_object(center);
+}
+
+public fun submit_task(
+    center: &mut ChildrenCenter,
+    staff: &StaffNFT,
+    description: String,
+    image_blob_id: String,
+    actor: address,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    assert!(
+        is_staff_matched_region(staff, center.region) && is_local_leader(staff),
+        ENotAuthorized,
+    );
+    let proof_id = create_proof_of_task(description, image_blob_id, actor, clock, ctx);
+    vector::push_back(&mut center.proof_of_tasks, proof_id);
 }
 
 public fun upload_center_image(
@@ -202,7 +235,7 @@ public fun add_child(
 
     let uid = object::new(ctx);
     let id = uid.to_inner();
-    let mut child = Child {
+    let child = Child {
         id: uid,
         identity_code: identity_code,
         first_name: first_name,
@@ -218,6 +251,7 @@ public fun add_child(
         gifts: vector[],
         books_needs: vector[init_books_need(1, year, id, ctx), init_books_need(2, year, id, ctx)],
         meal_need: init_meal_need(year, id, ctx),
+        health_insurance_need: init_health_insurance_need(year, id, ctx),
         special_need_proposals: vector[],
         special_need_campaigns: vector[],
         uploaded_by: ctx.sender(),
@@ -227,6 +261,7 @@ public fun add_child(
 
     transfer::share_object(child);
     add_child_to_manage(manage, id, ctx);
+    vector::push_back(&mut center.child_id, id);
 }
 
 public fun add_string_metadata(
@@ -335,7 +370,8 @@ public fun support_child_books_need(
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
-    validate_child_need(child, local_pool, false, get_books_need_id(need));
+    let need_type = b"books".to_string();
+    validate_child_need(child, local_pool, need_type, get_books_need_id(need));
     support_books_need(
         need,
         manage,
@@ -352,6 +388,52 @@ public fun support_child_books_need(
         clock,
         ctx,
     );
+
+    add_donation_amount_to_specific_need_in_pool(pool, local_pool, need_type, amount);
+}
+
+public fun support_child_health_insurance_need(
+    manage: &mut Manage,
+    pool: &mut VndPool,
+    need: &mut HealthInsuranceNeed,
+    local_pool: &mut LocalPool,
+    child: &mut Child,
+    donor: &mut DonorNFT,
+    amount: u64,
+    first_name: String,
+    last_name: String,
+    gender: String,
+    phone_number: String,
+    email: String,
+    message: String,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    let need_type = b"health".to_string();
+    validate_child_need(
+        child,
+        local_pool,
+        need_type,
+        get_health_insurance_need_id(need),
+    );
+    support_health_insurance_need(
+        need,
+        manage,
+        pool,
+        local_pool,
+        donor,
+        amount,
+        first_name,
+        last_name,
+        gender,
+        phone_number,
+        email,
+        message,
+        clock,
+        ctx,
+    );
+
+    add_donation_amount_to_specific_need_in_pool(pool, local_pool, need_type, amount);
 }
 
 public fun support_child_meal_need(
@@ -373,7 +455,8 @@ public fun support_child_meal_need(
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
-    validate_child_need(child, local_pool, true, get_meal_need_id(need));
+    let need_type = b"meal".to_string();
+    validate_child_need(child, local_pool, need_type, get_meal_need_id(need));
     support_meal_need(
         need,
         manage,
@@ -392,6 +475,8 @@ public fun support_child_meal_need(
         clock,
         ctx,
     );
+
+    add_donation_amount_to_specific_need_in_pool(pool, local_pool, need_type, amount);
 }
 
 public fun create_child_special_need_proposal(
@@ -485,7 +570,7 @@ public fun withdraw_from_special_need_campaign(
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
     campaign: &mut SpecialNeedCampaign,
-    proposal: &mut WithDrawProposal,
+    proposal: &mut WithdrawProposal,
     dao: &mut PoolWithdrawDao,
     clock: &Clock,
     ctx: &mut TxContext,
@@ -556,7 +641,7 @@ public fun withdraw_from_books_need_proposal(
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
     need: &mut BooksNeed,
-    proposal: &mut WithDrawProposal,
+    proposal: &mut WithdrawProposal,
     dao: &mut PoolWithdrawDao,
     clock: &Clock,
     ctx: &mut TxContext,
@@ -566,6 +651,53 @@ public fun withdraw_from_books_need_proposal(
         EWithdrawProposalNotOfCampaign,
     );
     withdraw_from_books_need(pool, local_pool, need, proposal, dao, clock, ctx);
+}
+
+public fun withdraw_from_health_insurance_need_proposal(
+    _: &AdminCap,
+    pool: &mut VndPool,
+    local_pool: &mut LocalPool,
+    need: &mut HealthInsuranceNeed,
+    proposal: &mut WithdrawProposal,
+    dao: &mut PoolWithdrawDao,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    assert!(
+        is_withdraw_proposal_matched_local_pool(proposal, local_pool),
+        EWithdrawProposalNotOfCampaign,
+    );
+    withdraw_from_health_insurance_need(pool, local_pool, need, proposal, dao, clock, ctx);
+}
+
+public fun create_child_health_insurance_need_withdraw_proposal(
+    manage: &mut Manage,
+    pool: &mut VndPool,
+    local_pool: &mut LocalPool,
+    need: &mut HealthInsuranceNeed,
+    child: &mut Child,
+    description: String,
+    closed_at: u64,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    validate_child_need_pre_proposal(
+        child,
+        manage,
+        get_health_insurance_need_id(need),
+        local_pool,
+        b"health".to_string(),
+        ctx,
+    );
+    create_health_insurance_need_withdraw_proposal(
+        need,
+        pool,
+        local_pool,
+        description,
+        closed_at,
+        clock,
+        ctx,
+    );
 }
 
 public fun create_child_meal_need_withdraw_proposal(
@@ -595,7 +727,7 @@ public fun withdraw_from_meal_need_proposal(
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
     need: &mut MealNeed,
-    proposal: &mut WithDrawProposal,
+    proposal: &mut WithdrawProposal,
     dao: &mut PoolWithdrawDao,
     clock: &Clock,
     ctx: &mut TxContext,
@@ -657,15 +789,17 @@ public(package) fun is_child_of_center(child: &Child, center: &ChildrenCenter): 
 fun validate_child_need(
     child: &mut Child,
     local_pool: &mut LocalPool,
-    is_meal_need: bool,
+    need_type: String,
     need_id: ID,
 ) {
     assert!(child.region == get_local_pool_region(local_pool), EChildNotMatchedRegion);
-    let found = if (!is_meal_need) {
+    let found = if (need_type == b"books".to_string()) {
         let (need_found, _) = vector::index_of(&mut child.books_needs, &need_id);
         need_found
-    } else {
+    } else if (need_type == b"meal".to_string()) {
         child.meal_need == need_id
+    } else {
+        child.health_insurance_need == need_id
     };
 
     assert!(found, ENeedNotExist);
@@ -681,14 +815,14 @@ fun validate_child_need_pre_proposal(
 ) {
     let found = if (need_type == b"meal".to_string()) {
         child.meal_need == need_id
-    } else if (need_type == b"bookS".to_string()) {
+    } else if (need_type == b"books".to_string()) {
         let (need_found, _) = vector::index_of(&child.books_needs, &need_id);
         need_found
     } else if (need_type == b"special".to_string()) {
         let (need_found, _) = vector::index_of(&child.special_need_campaigns, &need_id);
         need_found
     } else {
-        false
+        child.health_insurance_need == need_id
     };
 
     assert!(found && get_local_pool_region(local_pool) == child.region, ENeedNotExist);

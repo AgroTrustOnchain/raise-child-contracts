@@ -13,7 +13,7 @@ use raise_child::pool::{
     VndPool,
     LocalPool,
     PoolWithdrawDao,
-    WithDrawProposal,
+    WithdrawProposal,
     mint_vnd,
     get_local_pool_region,
     add_amount_to_local_pool,
@@ -29,7 +29,8 @@ use raise_child::pool::{
     get_withdraw_proposal_amount,
     get_withdraw_proposal_description,
     get_withdraw_proposal_id,
-    create_withdraw_proposal_for_child_need
+    create_withdraw_proposal_for_child_need,
+    set_transaction_record_for_withdraw_proposal
 };
 use raise_child::record::create_tx_record_v2;
 use std::string::String;
@@ -111,6 +112,18 @@ public struct MealNeed has key {
     provide_meal_dates: vector<String>,
     provide_meal_periods: vector<u64>,
     provide_meal_staffs: vector<address>,
+    withdraw_proposals: vector<ID>,
+    withdraws_for_need: vector<ID>,
+}
+
+public struct HealthInsuranceNeed has key {
+    id: UID,
+    child: ID,
+    year: u64,
+    year_changes: vector<u64>,
+    value: u64,
+    donors: vector<ID>,
+    donations: vector<ID>,
     withdraw_proposals: vector<ID>,
     withdraws_for_need: vector<ID>,
 }
@@ -249,6 +262,25 @@ public(package) fun init_meal_need(year: u64, child: ID, ctx: &mut TxContext): I
     id
 }
 
+public(package) fun init_health_insurance_need(year: u64, child: ID, ctx: &mut TxContext): ID {
+    let need = HealthInsuranceNeed {
+        id: object::new(ctx),
+        child: child,
+        year: year,
+        year_changes: vector[year],
+        value: 0,
+        donors: vector[],
+        donations: vector[],
+        withdraw_proposals: vector[],
+        withdraws_for_need: vector[],
+    };
+
+    let id = need.id.to_inner();
+    transfer::share_object(need);
+
+    id
+}
+
 public(package) fun confirm_provide_meal(
     need: &mut MealNeed,
     image_blob_id: String,
@@ -266,6 +298,53 @@ public(package) fun confirm_provide_meal(
 
 public(package) fun support_books_need(
     need: &mut BooksNeed,
+    manage: &mut Manage,
+    pool: &mut VndPool,
+    local_pool: &mut LocalPool,
+    donor: &mut DonorNFT,
+    amount: u64,
+    first_name: String,
+    last_name: String,
+    gender: String,
+    phone_number: String,
+    email: String,
+    message: String,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    assert!(amount == need.value, ENotMatchedAmount);
+    assert!(vector::length(&need.donations) < vector::length(&need.year_changes), ENeedSupported);
+    let donor_id = process_suport_need(
+        manage,
+        pool,
+        local_pool,
+        donor,
+        amount,
+        first_name,
+        last_name,
+        gender,
+        phone_number,
+        email,
+        message,
+        ctx,
+    );
+    vector::push_back(
+        &mut need.donations,
+        create_tx_record_v2(
+            amount,
+            b"VND".to_string(),
+            b"Support book need".to_string(),
+            get_local_pool_region(local_pool),
+            message,
+            clock,
+            ctx,
+        ),
+    );
+    vector::push_back(&mut need.donors, donor_id);
+}
+
+public(package) fun support_health_insurance_need(
+    need: &mut HealthInsuranceNeed,
     manage: &mut Manage,
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
@@ -597,7 +676,7 @@ public(package) fun withdraw_from_campaign(
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
     campaign: &mut SpecialNeedCampaign,
-    proposal: &mut WithDrawProposal,
+    proposal: &mut WithdrawProposal,
     dao: &mut PoolWithdrawDao,
     clock: &Clock,
     ctx: &mut TxContext,
@@ -613,17 +692,19 @@ public(package) fun withdraw_from_campaign(
     );
 
     campaign.withdraw_amount = campaign.withdraw_amount + get_withdraw_proposal_amount(proposal);
+    let id = create_tx_record_v2(
+        get_withdraw_proposal_amount(proposal),
+        b"VND".to_string(),
+        b"Withdraw".to_string(),
+        get_local_pool_region(local_pool),
+        get_withdraw_proposal_description(proposal),
+        clock,
+        ctx,
+    );
+    set_transaction_record_for_withdraw_proposal(proposal, id);
     vector::push_back(
         &mut campaign.withdraws,
-        create_tx_record_v2(
-            get_withdraw_proposal_amount(proposal),
-            b"VND".to_string(),
-            b"Withdraw".to_string(),
-            get_local_pool_region(local_pool),
-            get_withdraw_proposal_description(proposal),
-            clock,
-            ctx,
-        ),
+        id,
     );
 }
 
@@ -683,11 +764,40 @@ public(package) fun create_books_need_withdraw_proposal(
     );
 }
 
+public(package) fun create_health_insurance_need_withdraw_proposal(
+    need: &mut HealthInsuranceNeed,
+    pool: &mut VndPool,
+    local_pool: &mut LocalPool,
+    description: String,
+    closed_at: u64,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    assert!(
+        vector::length(&need.donations) > vector::length(&need.withdraws_for_need),
+        ENeedHasBeenFunded,
+    );
+
+    vector::push_back(
+        &mut need.withdraw_proposals,
+        create_withdraw_proposal_for_child_need(
+            pool,
+            local_pool,
+            need.value,
+            description,
+            b"health".to_string(),
+            closed_at,
+            clock,
+            ctx,
+        ),
+    );
+}
+
 public(package) fun withdraw_from_books_need(
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
     need: &mut BooksNeed,
-    proposal: &mut WithDrawProposal,
+    proposal: &mut WithdrawProposal,
     dao: &mut PoolWithdrawDao,
     clock: &Clock,
     ctx: &mut TxContext,
@@ -701,17 +811,57 @@ public(package) fun withdraw_from_books_need(
         clock,
         ctx,
     );
+
+    let id = create_tx_record_v2(
+        get_withdraw_proposal_amount(proposal),
+        b"VND".to_string(),
+        b"Withdraw".to_string(),
+        get_local_pool_region(local_pool),
+        get_withdraw_proposal_description(proposal),
+        clock,
+        ctx,
+    );
+
+    set_transaction_record_for_withdraw_proposal(proposal, id);
     vector::push_back(
         &mut need.withdraws_for_need,
-        create_tx_record_v2(
-            get_withdraw_proposal_amount(proposal),
-            b"VND".to_string(),
-            b"Withdraw".to_string(),
-            get_local_pool_region(local_pool),
-            get_withdraw_proposal_description(proposal),
-            clock,
-            ctx,
-        ),
+        id,
+    );
+}
+
+public(package) fun withdraw_from_health_insurance_need(
+    pool: &mut VndPool,
+    local_pool: &mut LocalPool,
+    need: &mut HealthInsuranceNeed,
+    proposal: &mut WithdrawProposal,
+    dao: &mut PoolWithdrawDao,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    process_withdraw_from_need(
+        pool,
+        local_pool,
+        &need.withdraw_proposals,
+        proposal,
+        dao,
+        clock,
+        ctx,
+    );
+
+    let id = create_tx_record_v2(
+        get_withdraw_proposal_amount(proposal),
+        b"VND".to_string(),
+        b"Withdraw".to_string(),
+        get_local_pool_region(local_pool),
+        get_withdraw_proposal_description(proposal),
+        clock,
+        ctx,
+    );
+
+    set_transaction_record_for_withdraw_proposal(proposal, id);
+    vector::push_back(
+        &mut need.withdraws_for_need,
+        id,
     );
 }
 
@@ -748,7 +898,7 @@ public(package) fun withdraw_from_meal_need(
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
     need: &mut MealNeed,
-    proposal: &mut WithDrawProposal,
+    proposal: &mut WithdrawProposal,
     dao: &mut PoolWithdrawDao,
     clock: &Clock,
     ctx: &mut TxContext,
@@ -762,17 +912,20 @@ public(package) fun withdraw_from_meal_need(
         clock,
         ctx,
     );
+
+    let id = create_tx_record_v2(
+        get_withdraw_proposal_amount(proposal),
+        b"VND".to_string(),
+        b"Withdraw".to_string(),
+        get_local_pool_region(local_pool),
+        get_withdraw_proposal_description(proposal),
+        clock,
+        ctx,
+    );
+    set_transaction_record_for_withdraw_proposal(proposal, id);
     vector::push_back(
         &mut need.withdraws_for_need,
-        create_tx_record_v2(
-            get_withdraw_proposal_amount(proposal),
-            b"VND".to_string(),
-            b"Withdraw".to_string(),
-            get_local_pool_region(local_pool),
-            get_withdraw_proposal_description(proposal),
-            clock,
-            ctx,
-        ),
+        id,
     );
 }
 
@@ -781,6 +934,10 @@ public(package) fun get_books_need_id(need: &mut BooksNeed): ID {
 }
 
 public(package) fun get_meal_need_id(need: &mut MealNeed): ID {
+    need.id.to_inner()
+}
+
+public(package) fun get_health_insurance_need_id(need: &mut HealthInsuranceNeed): ID {
     need.id.to_inner()
 }
 
@@ -842,7 +999,7 @@ fun process_withdraw_from_need(
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
     proposals: &vector<ID>,
-    proposal: &mut WithDrawProposal,
+    proposal: &mut WithdrawProposal,
     dao: &mut PoolWithdrawDao,
     clock: &Clock,
     ctx: &mut TxContext,

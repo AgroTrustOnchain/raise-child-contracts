@@ -326,3 +326,7 @@ public(package) fun is_staff_matched_region(staff: &StaffNFT, region: String): b
 public(package) fun get_staff_region(staff: &StaffNFT): String {
     staff.region
 }
+
+public(package) fun is_local_leader(staff: &StaffNFT): bool {
+    staff.role == b"Local Leader".to_string()
+}
