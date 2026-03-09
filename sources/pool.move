@@ -12,6 +12,7 @@ use raise_child::manage::{
     add_donor_to_manage,
     is_donor_added,
     is_admin_added,
+    is_admin_added_v2,
     is_withdraw_requestor_valid
 };
 use raise_child::record::{create_tx_record, create_tx_record_v2};
@@ -551,6 +552,75 @@ public fun create_withdraw_proposal(
     event::emit(WithdrawProposalCreated { id });
 }
 
+// Admin approve pending proposal to publish it on chain
+public fun create_withdraw_proposal_v2(
+    manage: &mut Manage,
+    pool: &mut VndPool,
+    local_pool: &mut LocalPool,
+    withdraw_amount: u64,
+    description: String,
+    is_from_local_pool: bool,
+    closed_at: u64,
+    creator: address,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    let cur_time = clock::timestamp_ms(clock);
+    assert!(closed_at > cur_time, EPassPeriod);
+
+    assert!(
+        is_leader_in_pool_v2(local_pool, creator) || is_admin_added_v2(manage, creator),
+        ENotAuthorized,
+    );
+    assert!(is_admin_added(manage, ctx) && ctx.sender() != creator, ENotAuthorized);
+
+    let amount: u64;
+    let pool_id: ID;
+    let pool_name: String;
+    if (is_from_local_pool) {
+        amount = pool.total_amount;
+        pool_id = local_pool.id.to_inner();
+        pool_name = local_pool.region;
+    } else {
+        amount = local_pool.total_amount;
+        pool_id = pool.id.to_inner();
+        pool_name = b"Main Pool".to_string();
+    };
+
+    let is_valid_amount =
+        withdraw_amount >= WITHDRAW_MIN_AMOUNT && withdraw_amount <= WITHDRAW_LIMIT_AMOUNT && withdraw_amount <= amount;
+    assert!(is_valid_amount, EInsufficientAmount);
+
+    let proposal = WithdrawProposal {
+        id: object::new(ctx),
+        pool_id: pool_id,
+        pool_name: pool_name,
+        creator: creator,
+        withdraw_amount: withdraw_amount,
+        description: description,
+        approvers: vector[],
+        refusers: vector[],
+        refuse_reasons: vector[],
+        approve_weight: 0,
+        refuse_weight: 0,
+        is_executed: false,
+        is_from_local_pool: is_from_local_pool,
+        purpose: b"Other".to_string(),
+        approved_periods: vector[],
+        refused_periods: vector[],
+        transaction_record_id: option::none(),
+        created_at: cur_time,
+        updated_at: cur_time,
+        closed_at: closed_at,
+    };
+
+    let id = proposal.id.to_inner();
+
+    vector::push_back(&mut pool.withdraw_proposals, id);
+    transfer::share_object(proposal);
+    event::emit(WithdrawProposalCreated { id });
+}
+
 public(package) fun create_withdraw_proposal_for_child_need(
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
@@ -579,6 +649,69 @@ public(package) fun create_withdraw_proposal_for_child_need(
         pool_id: local_pool.id.to_inner(),
         pool_name: local_pool.region,
         creator: ctx.sender(),
+        withdraw_amount: withdraw_amount,
+        description: description,
+        approvers: vector[],
+        refusers: vector[],
+        refuse_reasons: vector[],
+        approve_weight: 0,
+        refuse_weight: 0,
+        is_executed: false,
+        is_from_local_pool: true,
+        purpose: purpose,
+        approved_periods: vector[],
+        refused_periods: vector[],
+        transaction_record_id: option::none(),
+        created_at: cur_time,
+        updated_at: cur_time,
+        closed_at: closed_at,
+    };
+
+    let id = proposal.id.to_inner();
+    vector::push_back(&mut pool.withdraw_proposals, id);
+    transfer::share_object(proposal);
+    event::emit(WithdrawProposalCreated { id });
+    id
+}
+
+public(package) fun create_withdraw_proposal_for_child_need_v2(
+    manage: &mut Manage,
+    pool: &mut VndPool,
+    local_pool: &mut LocalPool,
+    withdraw_amount: u64,
+    description: String,
+    need_type: String,
+    closed_at: u64,
+    creator: address,
+    clock: &Clock,
+    ctx: &mut TxContext,
+): ID {
+    let cur_time = clock::timestamp_ms(clock);
+    assert!(closed_at > cur_time, EPassPeriod);
+
+    //let (leader_found, _) = vector::index_of(&mut local_pool.mods, &creator);
+    assert!(
+        is_leader_in_pool_v2(local_pool, creator) || is_admin_added_v2(manage, creator),
+        ENotAuthorized,
+    );
+
+    assert!(is_admin_added(manage, ctx) && ctx.sender() != creator, ENotAuthorized);
+
+    let purpose = if (need_type == b"books".to_string()) {
+        b"Child Books Need".to_string()
+    } else if (need_type == b"meal".to_string()) {
+        b"Child Meal Need".to_string()
+    } else if (need_type == b"special".to_string()) {
+        b"Child Special Need".to_string()
+    } else {
+        b"Child Health Insurance Need".to_string()
+    };
+
+    let proposal = WithdrawProposal {
+        id: object::new(ctx),
+        pool_id: local_pool.id.to_inner(),
+        pool_name: local_pool.region,
+        creator: creator,
         withdraw_amount: withdraw_amount,
         description: description,
         approvers: vector[],
@@ -783,6 +916,11 @@ public(package) fun add_amount_to_local_pool(pool: &mut LocalPool, amount: u64) 
 
 public(package) fun is_leader_in_pool(pool: &mut LocalPool, ctx: &mut TxContext): bool {
     let (found, _) = vector::index_of(&mut pool.mods, &ctx.sender());
+    found
+}
+
+public(package) fun is_leader_in_pool_v2(pool: &mut LocalPool, sender: address): bool {
+    let (found, _) = vector::index_of(&mut pool.mods, &sender);
     found
 }
 

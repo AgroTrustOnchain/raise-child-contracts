@@ -55,11 +55,6 @@ dependencies = [
   { id = "Sui", name = "Sui" },
 ]
 
-[move.toolchain-version]
-compiler-version = "1.54.2"
-edition = "2024.beta"
-flavor = "sui"
-
 [pinned.testnet.raise_child]
 source = { root = true }
 use_environment = "testnet"

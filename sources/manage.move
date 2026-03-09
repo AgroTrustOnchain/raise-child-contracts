@@ -323,6 +323,11 @@ public(package) fun is_admin_added(manage: &mut Manage, ctx: &mut TxContext): bo
     found
 }
 
+public(package) fun is_admin_added_v2(manage: &mut Manage, sender: address): bool {
+    let (found, _) = vector::index_of(&mut manage.admin_ids, &sender);
+    found
+}
+
 fun get_admin_nft_name(): String {
     b"RaiseChild Admin NFT".to_string()
 }

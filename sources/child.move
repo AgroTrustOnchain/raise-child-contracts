@@ -6,6 +6,7 @@ use raise_child::manage::{
     add_children_center_to_manage,
     is_create_children_center_requestor_valid,
     is_admin_added,
+    is_admin_added_v2,
     RegisterLocalLeaderCap,
     UploadCenterCap,
     Manage,
@@ -27,6 +28,7 @@ use raise_child::need::{
     support_books_need,
     support_meal_need,
     create_special_need_proposal,
+    create_special_need_proposal_v2,
     get_special_need_proposal_creator,
     get_special_need_proposal_id,
     get_health_insurance_need_id,
@@ -36,12 +38,17 @@ use raise_child::need::{
     withdraw_from_campaign,
     get_special_need_campaign_id,
     create_withdraw_proposal,
+    create_withdraw_proposal_v2,
     create_books_need_withdraw_proposal,
+    create_books_need_withdraw_proposal_v2,
     withdraw_from_books_need,
     create_meal_need_withdraw_proposal,
+    create_meal_need_withdraw_proposal_v2,
     create_health_insurance_need_withdraw_proposal,
+    create_health_insurance_need_withdraw_proposal_v2,
     withdraw_from_meal_need,
-    withdraw_from_health_insurance_need
+    withdraw_from_health_insurance_need,
+    confirm_provide_meal_v2
 };
 use raise_child::pool::{
     VndPool,
@@ -51,6 +58,7 @@ use raise_child::pool::{
     create_local_pool,
     get_local_pool_region,
     is_leader_in_pool,
+    is_leader_in_pool_v2,
     is_withdraw_proposal_matched_local_pool,
     add_donation_amount_to_specific_need_in_pool
 };
@@ -271,7 +279,7 @@ public fun add_string_metadata(
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
-    let (found, _) = vector::index_of(&mut child.dynamic_fields, &key);
+    let (found, _) = vector::index_of(&child.dynamic_fields, &key);
     assert!(!found, EFieldExisted);
 
     let cur_time = clock::timestamp_ms(clock);
@@ -287,7 +295,7 @@ public fun add_u64_metadata(
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
-    let (found, _) = vector::index_of(&mut child.dynamic_fields, &key);
+    let (found, _) = vector::index_of(&child.dynamic_fields, &key);
     assert!(!found, EFieldExisted);
 
     let cur_time = clock::timestamp_ms(clock);
@@ -509,6 +517,47 @@ public fun create_child_special_need_proposal(
     );
 }
 
+public fun create_child_special_need_proposal_v2(
+    manage: &mut Manage,
+    child: &mut Child,
+    pool: &mut LocalPool,
+    target: u64,
+    description: String,
+    closed_at: u64,
+    creator: address,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    // let sender = ctx.sender();
+
+    // Sender must be admin
+    // Reviewer and creator must be different
+    // Pool region must match child region
+    assert!(
+        is_admin_added(manage, ctx) && ctx.sender() != creator && get_local_pool_region(pool) == child.region,
+        ENotAuthorized,
+    );
+
+    // Creator can be admin or leader in pool
+    assert!(
+        is_leader_in_pool_v2(pool, creator) || is_admin_added_v2(manage, creator),
+        ENotAuthorized,
+    );
+
+    vector::push_back(
+        &mut child.special_need_proposals,
+        create_special_need_proposal_v2(
+            child.id.to_inner(),
+            target,
+            description,
+            closed_at,
+            creator,
+            clock,
+            ctx,
+        ),
+    );
+}
+
 public fun confirm_child_special_need_proposal(
     dao: &mut SpecialNeedDao,
     proposal: &mut SpecialNeedProposal,
@@ -614,6 +663,41 @@ public fun create_special_need_withdraw_proposal(
     );
 }
 
+public fun create_special_need_withdraw_proposal_v2(
+    manage: &mut Manage,
+    pool: &mut VndPool,
+    local_pool: &mut LocalPool,
+    campaign: &mut SpecialNeedCampaign,
+    child: &mut Child,
+    withdraw_amount: u64,
+    description: String,
+    closed_at: u64,
+    creator: address,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    validate_child_need_pre_proposal(
+        child,
+        manage,
+        get_special_need_campaign_id(campaign),
+        local_pool,
+        b"special".to_string(),
+        ctx,
+    );
+    create_withdraw_proposal_v2(
+        manage,
+        campaign,
+        pool,
+        local_pool,
+        withdraw_amount,
+        description,
+        closed_at,
+        creator,
+        clock,
+        ctx,
+    );
+}
+
 public fun create_child_books_need_withdraw_proposal(
     manage: &mut Manage,
     pool: &mut VndPool,
@@ -634,6 +718,39 @@ public fun create_child_books_need_withdraw_proposal(
         ctx,
     );
     create_books_need_withdraw_proposal(need, pool, local_pool, description, closed_at, clock, ctx);
+}
+
+public fun create_child_books_need_withdraw_proposal_v2(
+    manage: &mut Manage,
+    pool: &mut VndPool,
+    local_pool: &mut LocalPool,
+    need: &mut BooksNeed,
+    child: &mut Child,
+    description: String,
+    closed_at: u64,
+    creator: address,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    validate_child_need_pre_proposal(
+        child,
+        manage,
+        get_books_need_id(need),
+        local_pool,
+        b"books".to_string(),
+        ctx,
+    );
+    create_books_need_withdraw_proposal_v2(
+        manage,
+        need,
+        pool,
+        local_pool,
+        description,
+        closed_at,
+        creator,
+        clock,
+        ctx,
+    );
 }
 
 public fun withdraw_from_books_need_proposal(
@@ -700,6 +817,39 @@ public fun create_child_health_insurance_need_withdraw_proposal(
     );
 }
 
+public fun create_child_health_insurance_need_withdraw_proposal_v2(
+    manage: &mut Manage,
+    pool: &mut VndPool,
+    local_pool: &mut LocalPool,
+    need: &mut HealthInsuranceNeed,
+    child: &mut Child,
+    description: String,
+    closed_at: u64,
+    creator: address,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    validate_child_need_pre_proposal(
+        child,
+        manage,
+        get_health_insurance_need_id(need),
+        local_pool,
+        b"health".to_string(),
+        ctx,
+    );
+    create_health_insurance_need_withdraw_proposal_v2(
+        manage,
+        need,
+        pool,
+        local_pool,
+        description,
+        closed_at,
+        creator,
+        clock,
+        ctx,
+    );
+}
+
 public fun create_child_meal_need_withdraw_proposal(
     manage: &mut Manage,
     pool: &mut VndPool,
@@ -720,6 +870,39 @@ public fun create_child_meal_need_withdraw_proposal(
         ctx,
     );
     create_meal_need_withdraw_proposal(need, pool, local_pool, description, closed_at, clock, ctx);
+}
+
+public fun create_child_meal_need_withdraw_proposal_v2(
+    manage: &mut Manage,
+    pool: &mut VndPool,
+    local_pool: &mut LocalPool,
+    need: &mut MealNeed,
+    child: &mut Child,
+    description: String,
+    closed_at: u64,
+    creator: address,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    validate_child_need_pre_proposal(
+        child,
+        manage,
+        get_meal_need_id(need),
+        local_pool,
+        b"meal".to_string(),
+        ctx,
+    );
+    create_meal_need_withdraw_proposal_v2(
+        manage,
+        need,
+        pool,
+        local_pool,
+        description,
+        closed_at,
+        creator,
+        clock,
+        ctx,
+    );
 }
 
 public fun withdraw_from_meal_need_proposal(
@@ -753,6 +936,24 @@ public fun confirm_provide_meal_for_child(
 
     let cur_time = clock::timestamp_ms(clock);
     confirm_provide_meal(need, image_blob_id, provide_date, cur_time, ctx);
+    child.updated_at = cur_time;
+}
+
+public fun confirm_provide_meal_for_child_v2(
+    child: &mut Child,
+    need: &mut MealNeed,
+    staff: &StaffNFT,
+    image_blob_id: String,
+    provide_date: String,
+    actor: address,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    assert!(get_staff_region(staff) == child.region && is_local_leader(staff), ENotAuthorized);
+    assert!(child.meal_need == get_meal_need_id(need), ENeedNotExist);
+
+    let cur_time = clock::timestamp_ms(clock);
+    confirm_provide_meal_v2(need, image_blob_id, provide_date, actor, cur_time);
     child.updated_at = cur_time;
 }
 

@@ -30,7 +30,8 @@ use raise_child::pool::{
     get_withdraw_proposal_description,
     get_withdraw_proposal_id,
     create_withdraw_proposal_for_child_need,
-    set_transaction_record_for_withdraw_proposal
+    set_transaction_record_for_withdraw_proposal,
+    create_withdraw_proposal_for_child_need_v2
 };
 use raise_child::record::create_tx_record_v2;
 use std::string::String;
@@ -296,6 +297,21 @@ public(package) fun confirm_provide_meal(
     vector::push_back(&mut need.provide_meal_staffs, ctx.sender());
 }
 
+public(package) fun confirm_provide_meal_v2(
+    need: &mut MealNeed,
+    image_blob_id: String,
+    provide_date: String,
+    actor: address,
+    cur_time: u64,
+) {
+    let (found, _) = vector::index_of(&mut need.provide_meal_dates, &provide_date);
+    assert!(!found, EChildProvidedMeal);
+
+    vector::push_back(&mut need.provide_meal_dates, provide_date);
+    vector::push_back(&mut need.provide_meal_periods, cur_time);
+    vector::push_back(&mut need.provide_meal_staffs, actor);
+}
+
 public(package) fun support_books_need(
     need: &mut BooksNeed,
     manage: &mut Manage,
@@ -554,6 +570,43 @@ public(package) fun create_special_need_proposal(
     id
 }
 
+public(package) fun create_special_need_proposal_v2(
+    child_id: ID,
+    target: u64,
+    description: String,
+    closed_at: u64,
+    creator: address,
+    clock: &Clock,
+    ctx: &mut TxContext,
+): ID {
+    let cur_time = clock::timestamp_ms(clock);
+    assert!(closed_at > cur_time, EPassPeriod);
+    assert!(target >= MIN_SPECIAL_NEED_TARGET, EInsufficientAmount);
+
+    let proposal = SpecialNeedProposal {
+        id: object::new(ctx),
+        child: child_id,
+        creator: creator,
+        target: target,
+        description: description,
+        approvers: vector[],
+        refusers: vector[],
+        approve_weight: 0,
+        refuse_weight: 0,
+        refuse_reasons: vector[],
+        approved_periods: vector[],
+        refused_periods: vector[],
+        is_confirm: false,
+        created_at: cur_time,
+        updated_at: cur_time,
+        closed_at: closed_at,
+    };
+
+    let id = proposal.id.to_inner();
+    transfer::share_object(proposal);
+    id
+}
+
 public fun vote_special_need_proposal(
     dao: &mut SpecialNeedDao,
     proposal: &mut SpecialNeedProposal,
@@ -735,6 +788,37 @@ public(package) fun create_withdraw_proposal(
     );
 }
 
+public(package) fun create_withdraw_proposal_v2(
+    manage: &mut Manage,
+    campaign: &mut SpecialNeedCampaign,
+    pool: &mut VndPool,
+    local_pool: &mut LocalPool,
+    withdraw_amount: u64,
+    description: String,
+    closed_at: u64,
+    creator: address,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    let budget = campaign.total_donated - campaign.withdraw_amount;
+    assert!(withdraw_amount <= budget, EInsufficientAmount);
+    vector::push_back(
+        &mut campaign.withdraw_proposals,
+        create_withdraw_proposal_for_child_need_v2(
+            manage,
+            pool,
+            local_pool,
+            withdraw_amount,
+            description,
+            b"special".to_string(),
+            closed_at,
+            creator,
+            clock,
+            ctx,
+        ),
+    );
+}
+
 public(package) fun create_books_need_withdraw_proposal(
     need: &mut BooksNeed,
     pool: &mut VndPool,
@@ -764,6 +848,39 @@ public(package) fun create_books_need_withdraw_proposal(
     );
 }
 
+public(package) fun create_books_need_withdraw_proposal_v2(
+    manage: &mut Manage,
+    need: &mut BooksNeed,
+    pool: &mut VndPool,
+    local_pool: &mut LocalPool,
+    description: String,
+    closed_at: u64,
+    creator: address,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    assert!(
+        vector::length(&need.donations) > vector::length(&need.withdraws_for_need),
+        ENeedHasBeenFunded,
+    );
+
+    vector::push_back(
+        &mut need.withdraw_proposals,
+        create_withdraw_proposal_for_child_need_v2(
+            manage,
+            pool,
+            local_pool,
+            need.value,
+            description,
+            b"books".to_string(),
+            closed_at,
+            creator,
+            clock,
+            ctx,
+        ),
+    );
+}
+
 public(package) fun create_health_insurance_need_withdraw_proposal(
     need: &mut HealthInsuranceNeed,
     pool: &mut VndPool,
@@ -787,6 +904,39 @@ public(package) fun create_health_insurance_need_withdraw_proposal(
             description,
             b"health".to_string(),
             closed_at,
+            clock,
+            ctx,
+        ),
+    );
+}
+
+public(package) fun create_health_insurance_need_withdraw_proposal_v2(
+    manage: &mut Manage,
+    need: &mut HealthInsuranceNeed,
+    pool: &mut VndPool,
+    local_pool: &mut LocalPool,
+    description: String,
+    closed_at: u64,
+    creator: address,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    assert!(
+        vector::length(&need.donations) > vector::length(&need.withdraws_for_need),
+        ENeedHasBeenFunded,
+    );
+
+    vector::push_back(
+        &mut need.withdraw_proposals,
+        create_withdraw_proposal_for_child_need_v2(
+            manage,
+            pool,
+            local_pool,
+            need.value,
+            description,
+            b"health".to_string(),
+            closed_at,
+            creator,
             clock,
             ctx,
         ),
@@ -888,6 +1038,39 @@ public(package) fun create_meal_need_withdraw_proposal(
             description,
             b"meal".to_string(),
             closed_at,
+            clock,
+            ctx,
+        ),
+    );
+}
+
+public(package) fun create_meal_need_withdraw_proposal_v2(
+    manage: &mut Manage,
+    need: &mut MealNeed,
+    pool: &mut VndPool,
+    local_pool: &mut LocalPool,
+    description: String,
+    closed_at: u64,
+    creator: address,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    assert!(
+        need.total_supported_months > vector::length(&need.withdraws_for_need),
+        ENeedHasBeenFunded,
+    );
+
+    vector::push_back(
+        &mut need.withdraw_proposals,
+        create_withdraw_proposal_for_child_need_v2(
+            manage,
+            pool,
+            local_pool,
+            need.value,
+            description,
+            b"meal".to_string(),
+            closed_at,
+            creator,
             clock,
             ctx,
         ),
