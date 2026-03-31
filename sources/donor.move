@@ -30,8 +30,8 @@ fun init(ctx: &mut TxContext) {
         phone_number: empty,
         email: empty,
         total_donation: 0,
-        name: b"RaiseChild Donor NFT".to_string(),
-        url: new_unsafe_from_bytes(b"some-link"),
+        name: get_donor_nft_name(),
+        url: new_unsafe_from_bytes(get_donor_nft_url_bytes()),
     });
 }
 
@@ -56,8 +56,8 @@ public(package) fun mint_donor_nft(
             phone_number: phone_number,
             email: email,
             total_donation: amount,
-            name: b"RaiseChild Donor NFT".to_string(),
-            url: new_unsafe_from_bytes(b"some-link"),
+            name: get_donor_nft_name(),
+            url: new_unsafe_from_bytes(get_donor_nft_url_bytes()),
         };
 
         add_donor_to_manage_v3(manage, nft.id.to_inner(), ctx);
@@ -85,14 +85,22 @@ public(package) fun mint_donor_nft_v2(
         phone_number: phone_number,
         email: email,
         total_donation: amount,
-        name: b"RaiseChild Donor NFT".to_string(),
-        url: new_unsafe_from_bytes(b"some-link"),
+        name: get_donor_nft_name(),
+        url: new_unsafe_from_bytes(get_donor_nft_url_bytes()),
     };
 
     let id = nft.id.to_inner();
     add_donor_to_manage_v3(manage, id, ctx);
     transfer::transfer(nft, owner);
     id
+}
+
+fun get_donor_nft_name(): String {
+    b"AgroTrust Donor NFT".to_string()
+}
+
+fun get_donor_nft_url_bytes(): vector<u8> {
+    b"https://www.shutterstock.com/image-vector/heart-hand-vector-icon-600nw-1017516478.jpg"
 }
 
 public(package) fun update_donation_after_donate(

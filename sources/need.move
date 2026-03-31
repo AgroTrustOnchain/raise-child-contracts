@@ -8,7 +8,14 @@ use raise_child::donor::{
     get_donor_donate_amount,
     mint_donor_nft
 };
-use raise_child::manage::{Manage, AdminCap, is_donor_added, add_donor_to_manage};
+use raise_child::manage::{
+    Self,
+    Manage,
+    AdminCap,
+    is_donor_added,
+    is_admin_added,
+    add_donor_to_manage
+};
 use raise_child::pool::{
     VndPool,
     LocalPool,
@@ -58,6 +65,9 @@ const ENeedHasBeenFunded: u64 = 15;
 const EWithdrawProposalNotOfNeed: u64 = 16;
 const EInvalidSupportMonths: u64 = 17;
 const EChildProvidedMeal: u64 = 18;
+const EYearExistedInChanges: u64 = 19;
+const ENotAuthorized: u64 = 20;
+const EInvalidDate: u64 = 21;
 
 const MIN_SPECIAL_NEED_TARGET: u64 = 100_000;
 const PRESISION_FACTOR: u64 = 1_000;
@@ -68,6 +78,24 @@ public struct SpecialNeedDao has key {
     min_voters: u64,
 }
 
+public struct EditBooksNeedDates has key {
+    id: UID,
+    start_date: String,
+    end_date: String,
+}
+
+public struct EditHealthInsuranceNeedDates has key {
+    id: UID,
+    start_date: String,
+    end_date: String,
+}
+
+public struct EditMealNeedDates has key {
+    id: UID,
+    start_date: String,
+    end_date: String,
+}
+
 public struct BooksNeed has key {
     id: UID,
     child: ID,
@@ -75,10 +103,12 @@ public struct BooksNeed has key {
     year_changes: vector<u64>,
     semester: u64,
     value: u64,
+    supported_years: vector<u64>,
     donors: vector<ID>,
     donations: vector<ID>,
     withdraw_proposals: vector<ID>,
     withdraws_for_need: vector<ID>,
+    is_updated: bool,
 }
 
 public struct MealSupportDuration has store {
@@ -115,6 +145,7 @@ public struct MealNeed has key {
     provide_meal_staffs: vector<address>,
     withdraw_proposals: vector<ID>,
     withdraws_for_need: vector<ID>,
+    is_updated: bool,
 }
 
 public struct HealthInsuranceNeed has key {
@@ -123,10 +154,12 @@ public struct HealthInsuranceNeed has key {
     year: u64,
     year_changes: vector<u64>,
     value: u64,
+    supported_years: vector<u64>,
     donors: vector<ID>,
     donations: vector<ID>,
     withdraw_proposals: vector<ID>,
     withdraws_for_need: vector<ID>,
+    is_updated: bool,
 }
 
 public struct SpecialNeedProposal has key {
@@ -135,6 +168,7 @@ public struct SpecialNeedProposal has key {
     creator: address,
     target: u64,
     description: String,
+    proof_blob_id: String,
     approvers: vector<address>,
     refusers: vector<address>,
     approve_weight: u64,
@@ -154,6 +188,7 @@ public struct SpecialNeedCampaign has key {
     creator: address,
     target: u64,
     description: String,
+    proof_blob_id: String,
     total_donated: u64,
     withdraw_amount: u64,
     donations: vector<ID>,
@@ -169,6 +204,56 @@ public struct BooksNeedWithdrawDates has key {
     second_semester_date: String,
 }
 
+public struct HealthInsuranceNeedWithdrawDate has key {
+    id: UID,
+    expected_date: String,
+}
+
+public fun edit_update_books_need_dates(
+    manage: &mut Manage,
+    dates: &mut EditBooksNeedDates,
+    start_date: String,
+    end_date: String,
+    ctx: &mut TxContext,
+) {
+    assert!(is_admin_added(manage, ctx), ENotAuthorized);
+
+    let empty = b"".to_string();
+    assert!(start_date != empty && end_date != empty, EInvalidDate);
+    dates.start_date = start_date;
+    dates.end_date = end_date;
+}
+
+public fun edit_update_meal_need_dates(
+    manage: &mut Manage,
+    dates: &mut EditMealNeedDates,
+    start_date: String,
+    end_date: String,
+    ctx: &mut TxContext,
+) {
+    assert!(is_admin_added(manage, ctx), ENotAuthorized);
+
+    let empty = b"".to_string();
+    assert!(start_date != empty && end_date != empty, EInvalidDate);
+    dates.start_date = start_date;
+    dates.end_date = end_date;
+}
+
+public fun edit_update_health_insurance_need_dates(
+    manage: &mut Manage,
+    dates: &mut EditHealthInsuranceNeedDates,
+    start_date: String,
+    end_date: String,
+    ctx: &mut TxContext,
+) {
+    assert!(is_admin_added(manage, ctx), ENotAuthorized);
+
+    let empty = b"".to_string();
+    assert!(start_date != empty && end_date != empty, EInvalidDate);
+    dates.start_date = start_date;
+    dates.end_date = end_date;
+}
+
 fun init(ctx: &mut TxContext) {
     transfer::share_object(SpecialNeedDao {
         id: object::new(ctx),
@@ -180,6 +265,29 @@ fun init(ctx: &mut TxContext) {
         id: object::new(ctx),
         first_semester_date: b"01/10".to_string(),
         second_semester_date: b"07/01".to_string(),
+    });
+
+    transfer::share_object(HealthInsuranceNeedWithdrawDate {
+        id: object::new(ctx),
+        expected_date: b"15/10".to_string(),
+    });
+
+    transfer::share_object(EditBooksNeedDates {
+        id: object::new(ctx),
+        start_date: b"01/08".to_string(),
+        end_date: b"01/09".to_string(),
+    });
+
+    transfer::share_object(EditHealthInsuranceNeedDates {
+        id: object::new(ctx),
+        start_date: b"01/09".to_string(),
+        end_date: b"01/11".to_string(),
+    });
+
+    transfer::share_object(EditMealNeedDates {
+        id: object::new(ctx),
+        start_date: b"15/01".to_string(),
+        end_date: b"20/01".to_string(),
     });
 }
 
@@ -198,18 +306,20 @@ public fun edit_special_need_dao_rate(
     };
 }
 
-public(package) fun init_books_need(semester: u64, year: u64, child: ID, ctx: &mut TxContext): ID {
+public(package) fun init_books_need(semester: u64, child: ID, ctx: &mut TxContext): ID {
     let need = BooksNeed {
         id: object::new(ctx),
         child: child,
-        year: year,
-        year_changes: vector[year],
+        year: 0,
+        year_changes: vector[],
         semester: semester,
         value: 0,
+        supported_years: vector[],
         donors: vector[],
         donations: vector[],
         withdraw_proposals: vector[],
         withdraws_for_need: vector[],
+        is_updated: false,
     };
 
     let id = need.id.to_inner();
@@ -239,11 +349,11 @@ public(package) fun init_books_need(semester: u64, year: u64, child: ID, ctx: &m
 //     id
 // }
 
-public(package) fun init_meal_need(year: u64, child: ID, ctx: &mut TxContext): ID {
+public(package) fun init_meal_need(child: ID, ctx: &mut TxContext): ID {
     let need = MealNeed {
         id: object::new(ctx),
         child: child,
-        year: year,
+        year: 0,
         value: 0,
         donors: vector[],
         donations: vector[],
@@ -255,6 +365,7 @@ public(package) fun init_meal_need(year: u64, child: ID, ctx: &mut TxContext): I
         provide_meal_staffs: vector[],
         withdraw_proposals: vector[],
         withdraws_for_need: vector[],
+        is_updated: false,
     };
 
     let id = need.id.to_inner();
@@ -263,17 +374,19 @@ public(package) fun init_meal_need(year: u64, child: ID, ctx: &mut TxContext): I
     id
 }
 
-public(package) fun init_health_insurance_need(year: u64, child: ID, ctx: &mut TxContext): ID {
+public(package) fun init_health_insurance_need(child: ID, ctx: &mut TxContext): ID {
     let need = HealthInsuranceNeed {
         id: object::new(ctx),
         child: child,
-        year: year,
-        year_changes: vector[year],
+        year: 0,
+        year_changes: vector[],
         value: 0,
+        supported_years: vector[],
         donors: vector[],
         donations: vector[],
         withdraw_proposals: vector[],
         withdraws_for_need: vector[],
+        is_updated: false,
     };
 
     let id = need.id.to_inner();
@@ -329,7 +442,9 @@ public(package) fun support_books_need(
     ctx: &mut TxContext,
 ) {
     assert!(amount == need.value, ENotMatchedAmount);
-    assert!(vector::length(&need.donations) < vector::length(&need.year_changes), ENeedSupported);
+
+    let (found, _) = vector::index_of(&mut need.supported_years, &need.year);
+    assert!(!found, ENeedSupported);
     let donor_id = process_suport_need(
         manage,
         pool,
@@ -347,6 +462,7 @@ public(package) fun support_books_need(
     vector::push_back(
         &mut need.donations,
         create_tx_record_v2(
+            manage,
             amount,
             b"VND".to_string(),
             b"Support book need".to_string(),
@@ -376,7 +492,8 @@ public(package) fun support_health_insurance_need(
     ctx: &mut TxContext,
 ) {
     assert!(amount == need.value, ENotMatchedAmount);
-    assert!(vector::length(&need.donations) < vector::length(&need.year_changes), ENeedSupported);
+    let (found, _) = vector::index_of(&mut need.supported_years, &need.year);
+    assert!(!found, ENeedSupported);
     let donor_id = process_suport_need(
         manage,
         pool,
@@ -394,6 +511,7 @@ public(package) fun support_health_insurance_need(
     vector::push_back(
         &mut need.donations,
         create_tx_record_v2(
+            manage,
             amount,
             b"VND".to_string(),
             b"Support book need".to_string(),
@@ -518,6 +636,7 @@ public(package) fun support_meal_need(
     vector::push_back(
         &mut need.donations,
         create_tx_record_v2(
+            manage,
             amount,
             b"VND".to_string(),
             b"Support meal need".to_string(),
@@ -552,6 +671,7 @@ public(package) fun create_special_need_proposal(
         creator: ctx.sender(),
         target: target,
         description: description,
+        proof_blob_id: b"".to_string(),
         approvers: vector[],
         refusers: vector[],
         approve_weight: 0,
@@ -574,6 +694,7 @@ public(package) fun create_special_need_proposal_v2(
     child_id: ID,
     target: u64,
     description: String,
+    proof_blob_id: String,
     closed_at: u64,
     creator: address,
     clock: &Clock,
@@ -589,6 +710,7 @@ public(package) fun create_special_need_proposal_v2(
         creator: creator,
         target: target,
         description: description,
+        proof_blob_id: proof_blob_id,
         approvers: vector[],
         refusers: vector[],
         approve_weight: 0,
@@ -666,6 +788,7 @@ public(package) fun create_special_need_campaign(
         creator: proposal.creator,
         target: proposal.target,
         description: proposal.description,
+        proof_blob_id: proposal.proof_blob_id,
         total_donated: 0,
         withdraw_amount: 0,
         donations: vector[],
@@ -714,6 +837,7 @@ public(package) fun support_special_need_campaign(
     vector::push_back(
         &mut campaign.donations,
         create_tx_record_v2(
+            manage,
             amount,
             b"VND".to_string(),
             b"Support special need".to_string(),
@@ -726,6 +850,7 @@ public(package) fun support_special_need_campaign(
 }
 
 public(package) fun withdraw_from_campaign(
+    manage: &mut Manage,
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
     campaign: &mut SpecialNeedCampaign,
@@ -736,7 +861,6 @@ public(package) fun withdraw_from_campaign(
 ) {
     process_withdraw_from_need(
         pool,
-        local_pool,
         &campaign.withdraw_proposals,
         proposal,
         dao,
@@ -746,6 +870,7 @@ public(package) fun withdraw_from_campaign(
 
     campaign.withdraw_amount = campaign.withdraw_amount + get_withdraw_proposal_amount(proposal);
     let id = create_tx_record_v2(
+        manage,
         get_withdraw_proposal_amount(proposal),
         b"VND".to_string(),
         b"Withdraw".to_string(),
@@ -810,6 +935,7 @@ public(package) fun create_withdraw_proposal_v2(
             local_pool,
             withdraw_amount,
             description,
+            campaign.proof_blob_id,
             b"special".to_string(),
             closed_at,
             creator,
@@ -854,6 +980,7 @@ public(package) fun create_books_need_withdraw_proposal_v2(
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
     description: String,
+    proof_blob_id: String,
     closed_at: u64,
     creator: address,
     clock: &Clock,
@@ -872,6 +999,7 @@ public(package) fun create_books_need_withdraw_proposal_v2(
             local_pool,
             need.value,
             description,
+            proof_blob_id,
             b"books".to_string(),
             closed_at,
             creator,
@@ -916,6 +1044,7 @@ public(package) fun create_health_insurance_need_withdraw_proposal_v2(
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
     description: String,
+    proof_blob_id: String,
     closed_at: u64,
     creator: address,
     clock: &Clock,
@@ -934,6 +1063,7 @@ public(package) fun create_health_insurance_need_withdraw_proposal_v2(
             local_pool,
             need.value,
             description,
+            proof_blob_id,
             b"health".to_string(),
             closed_at,
             creator,
@@ -944,6 +1074,7 @@ public(package) fun create_health_insurance_need_withdraw_proposal_v2(
 }
 
 public(package) fun withdraw_from_books_need(
+    manage: &mut Manage,
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
     need: &mut BooksNeed,
@@ -954,7 +1085,6 @@ public(package) fun withdraw_from_books_need(
 ) {
     process_withdraw_from_need(
         pool,
-        local_pool,
         &need.withdraw_proposals,
         proposal,
         dao,
@@ -963,6 +1093,7 @@ public(package) fun withdraw_from_books_need(
     );
 
     let id = create_tx_record_v2(
+        manage,
         get_withdraw_proposal_amount(proposal),
         b"VND".to_string(),
         b"Withdraw".to_string(),
@@ -980,6 +1111,7 @@ public(package) fun withdraw_from_books_need(
 }
 
 public(package) fun withdraw_from_health_insurance_need(
+    manage: &mut Manage,
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
     need: &mut HealthInsuranceNeed,
@@ -990,7 +1122,6 @@ public(package) fun withdraw_from_health_insurance_need(
 ) {
     process_withdraw_from_need(
         pool,
-        local_pool,
         &need.withdraw_proposals,
         proposal,
         dao,
@@ -999,6 +1130,7 @@ public(package) fun withdraw_from_health_insurance_need(
     );
 
     let id = create_tx_record_v2(
+        manage,
         get_withdraw_proposal_amount(proposal),
         b"VND".to_string(),
         b"Withdraw".to_string(),
@@ -1050,6 +1182,7 @@ public(package) fun create_meal_need_withdraw_proposal_v2(
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
     description: String,
+    proof_blob_id: String,
     closed_at: u64,
     creator: address,
     clock: &Clock,
@@ -1068,6 +1201,7 @@ public(package) fun create_meal_need_withdraw_proposal_v2(
             local_pool,
             need.value,
             description,
+            proof_blob_id,
             b"meal".to_string(),
             closed_at,
             creator,
@@ -1078,6 +1212,7 @@ public(package) fun create_meal_need_withdraw_proposal_v2(
 }
 
 public(package) fun withdraw_from_meal_need(
+    manage: &mut Manage,
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
     need: &mut MealNeed,
@@ -1088,7 +1223,6 @@ public(package) fun withdraw_from_meal_need(
 ) {
     process_withdraw_from_need(
         pool,
-        local_pool,
         &need.withdraw_proposals,
         proposal,
         dao,
@@ -1097,6 +1231,7 @@ public(package) fun withdraw_from_meal_need(
     );
 
     let id = create_tx_record_v2(
+        manage,
         get_withdraw_proposal_amount(proposal),
         b"VND".to_string(),
         b"Withdraw".to_string(),
@@ -1110,6 +1245,53 @@ public(package) fun withdraw_from_meal_need(
         &mut need.withdraws_for_need,
         id,
     );
+}
+
+public(package) fun update_books_need(need: &mut BooksNeed, year: u64, value: u64) {
+    assert!(year > need.year, EYearExistedInChanges);
+    assert!(value >= 10_000, EInsufficientAmount);
+
+    vector::push_back(
+        &mut need.year_changes,
+        year,
+    );
+
+    need.year = year;
+    need.value = value;
+    if (!need.is_updated) {
+        need.is_updated = true;
+    };
+}
+
+public(package) fun update_health_insurance_need(
+    need: &mut HealthInsuranceNeed,
+    year: u64,
+    value: u64,
+) {
+    assert!(year > need.year, EYearExistedInChanges);
+    assert!(value >= 10_000, EInsufficientAmount);
+
+    vector::push_back(
+        &mut need.year_changes,
+        year,
+    );
+
+    need.year = year;
+    need.value = value;
+    if (!need.is_updated) {
+        need.is_updated = true;
+    };
+}
+
+public(package) fun update_meal_need(need: &mut MealNeed, year: u64, value: u64) {
+    assert!(year >= need.year, EYearExistedInChanges);
+    assert!(value >= 10_000, EInsufficientAmount);
+
+    need.year = year;
+    need.value = value;
+    if (!need.is_updated) {
+        need.is_updated = true;
+    };
 }
 
 public(package) fun get_books_need_id(need: &mut BooksNeed): ID {
@@ -1180,7 +1362,6 @@ fun process_suport_need(
 
 fun process_withdraw_from_need(
     pool: &mut VndPool,
-    local_pool: &mut LocalPool,
     proposals: &vector<ID>,
     proposal: &mut WithdrawProposal,
     dao: &mut PoolWithdrawDao,

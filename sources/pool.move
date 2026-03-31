@@ -21,6 +21,7 @@ use std::address::length;
 use std::ascii::index_of;
 use std::option::{Self, Option};
 use std::string::{Self, String};
+use std::u128::to_string;
 use std::vector::push_back;
 use sui::balance::{Self, Balance};
 use sui::clock::{Self, Clock};
@@ -90,6 +91,7 @@ public struct WithdrawProposal has key {
     creator: address,
     withdraw_amount: u64,
     description: String,
+    proof_blob_id: String,
     approvers: vector<address>,
     refusers: vector<address>,
     approve_weight: u64,
@@ -160,11 +162,14 @@ public entry fun init_pool(cap: TreasuryCap<VND>, ctx: &mut TxContext) {
 }
 
 public fun edit_withdraw_dao_rate(
-    _: &AdminCap,
+    manage: &mut Manage,
     dao: &mut PoolWithdrawDao,
     min_rate: u64,
     min_voters: u64,
+    ctx: &mut TxContext,
 ) {
+    assert!(is_admin_added(manage, ctx), ENotAuthorized);
+
     if (min_rate > 0) {
         dao.min_approved_rate = min_rate;
     };
@@ -252,7 +257,16 @@ public fun donate_to_pool(
 
     let coin_type: String = b"VND".to_string();
     let action_type: String = b"Donate".to_string();
-    create_tx_record(amount, coin_type, action_type, b"Main Pool".to_string(), message, clock, ctx);
+    create_tx_record(
+        manage,
+        amount,
+        coin_type,
+        action_type,
+        b"Main Pool".to_string(),
+        message,
+        clock,
+        ctx,
+    );
 }
 
 // public fun donate_to_local_pool(
@@ -339,7 +353,16 @@ public fun donate_to_local_pool(
 
     let coin_type: String = b"VND".to_string();
     let action_type: String = b"Donate".to_string();
-    create_tx_record(amount, coin_type, action_type, local_pool.region, message, clock, ctx);
+    create_tx_record(
+        manage,
+        amount,
+        coin_type,
+        action_type,
+        local_pool.region,
+        message,
+        clock,
+        ctx,
+    );
 }
 
 public(package) fun mint_vnd(pool: &mut VndPool, amount: u64, ctx: &mut TxContext) {
@@ -437,12 +460,12 @@ public fun withdraw_from_pool(
     manage: &mut Manage,
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
-    _: &AdminCap,
     proposal: &mut WithdrawProposal,
     dao: &mut PoolWithdrawDao,
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
+    assert!(is_admin_added(manage, ctx), ENotAuthorized);
     let cur_time = clock::timestamp_ms(clock);
     assert!(proposal.closed_at <= cur_time, EWithdrawProposalStillPending);
     assert!(
@@ -475,6 +498,7 @@ public fun withdraw_from_pool(
     let coin_type: String = b"VND".to_string();
     let action_type: String = b"Withdraw".to_string();
     let id = create_tx_record_v2(
+        manage,
         proposal.withdraw_amount,
         coin_type,
         action_type,
@@ -529,6 +553,7 @@ public fun create_withdraw_proposal(
         creator: ctx.sender(),
         withdraw_amount: withdraw_amount,
         description: description,
+        proof_blob_id: b"".to_string(),
         approvers: vector[],
         refusers: vector[],
         refuse_reasons: vector[],
@@ -559,6 +584,7 @@ public fun create_withdraw_proposal_v2(
     local_pool: &mut LocalPool,
     withdraw_amount: u64,
     description: String,
+    proof_blob_id: String,
     is_from_local_pool: bool,
     closed_at: u64,
     creator: address,
@@ -598,6 +624,7 @@ public fun create_withdraw_proposal_v2(
         creator: creator,
         withdraw_amount: withdraw_amount,
         description: description,
+        proof_blob_id: proof_blob_id,
         approvers: vector[],
         refusers: vector[],
         refuse_reasons: vector[],
@@ -651,6 +678,7 @@ public(package) fun create_withdraw_proposal_for_child_need(
         creator: ctx.sender(),
         withdraw_amount: withdraw_amount,
         description: description,
+        proof_blob_id: b"".to_string(),
         approvers: vector[],
         refusers: vector[],
         refuse_reasons: vector[],
@@ -680,6 +708,7 @@ public(package) fun create_withdraw_proposal_for_child_need_v2(
     local_pool: &mut LocalPool,
     withdraw_amount: u64,
     description: String,
+    proof_blob_id: String,
     need_type: String,
     closed_at: u64,
     creator: address,
@@ -714,6 +743,7 @@ public(package) fun create_withdraw_proposal_for_child_need_v2(
         creator: creator,
         withdraw_amount: withdraw_amount,
         description: description,
+        proof_blob_id: proof_blob_id,
         approvers: vector[],
         refusers: vector[],
         refuse_reasons: vector[],
@@ -756,6 +786,7 @@ public(package) fun create_withdraw_proposal_for_special_need(
         creator: ctx.sender(),
         withdraw_amount: withdraw_amount,
         description: description,
+        proof_blob_id: b"".to_string(),
         approvers: vector[],
         refusers: vector[],
         refuse_reasons: vector[],
@@ -798,6 +829,7 @@ public(package) fun create_withdraw_proposal_for_books_need(
         creator: ctx.sender(),
         withdraw_amount: withdraw_amount,
         description: description,
+        proof_blob_id: b"".to_string(),
         approvers: vector[],
         refusers: vector[],
         refuse_reasons: vector[],
@@ -839,6 +871,7 @@ public(package) fun create_withdraw_proposal_for_meal_need(
         creator: ctx.sender(),
         withdraw_amount: withdraw_amount,
         description: description,
+        proof_blob_id: b"".to_string(),
         approvers: vector[],
         refusers: vector[],
         refuse_reasons: vector[],

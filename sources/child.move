@@ -7,10 +7,9 @@ use raise_child::manage::{
     is_create_children_center_requestor_valid,
     is_admin_added,
     is_admin_added_v2,
-    RegisterLocalLeaderCap,
+    is_leader_added,
     UploadCenterCap,
-    Manage,
-    AdminCap
+    Manage
 };
 use raise_child::need::{
     BooksNeed,
@@ -48,7 +47,10 @@ use raise_child::need::{
     create_health_insurance_need_withdraw_proposal_v2,
     withdraw_from_meal_need,
     withdraw_from_health_insurance_need,
-    confirm_provide_meal_v2
+    confirm_provide_meal_v2,
+    update_books_need,
+    update_health_insurance_need,
+    update_meal_need
 };
 use raise_child::pool::{
     VndPool,
@@ -63,13 +65,10 @@ use raise_child::pool::{
     add_donation_amount_to_specific_need_in_pool
 };
 use raise_child::staff::{StaffNFT, get_staff_region, is_staff_matched_region, is_local_leader};
-use raise_child::task::create_proof_of_task;
-use std::ascii::index_of;
+use raise_child::task::create_task_proof;
 use std::string::String;
-use std::u128::to_string;
 use sui::clock::{Self, Clock};
-use sui::dynamic_field::{Self as df, Self};
-use sui::event::emit;
+use sui::dynamic_field as df;
 
 const EFieldExisted: u64 = 1;
 const EFieldNotExisted: u64 = 2;
@@ -81,6 +80,7 @@ const ENotAuthorized: u64 = 7;
 const EProposalNotOfChild: u64 = 8;
 const EWithdrawProposalNotOfCampaign: u64 = 9;
 const ECampaignNotOfChild: u64 = 10;
+const EMissingChildProfileInfo: u64 = 11;
 
 public struct Child has key {
     id: UID,
@@ -89,8 +89,11 @@ public struct Child has key {
     last_name: String,
     gender: String,
     date_of_birth: String,
+    home_address: String,
     region: String,
     avatar_blob_id: String,
+    home_blob_id: String,
+    guardian_profiles: vector<ChildGuardianProfile>,
     image_blob_ids: vector<String>,
     upload_image_periods: vector<u64>,
     upload_image_time: vector<String>,
@@ -106,17 +109,22 @@ public struct Child has key {
     updated_at: u64,
 }
 
-// task_image_blob_ids: vector<String>,
-// task_actors: vector<address>,
+public struct ChildGuardianProfile has store {
+    full_name: String,
+    phone_number: String,
+    relation: String,
+    identity_card_blob_id: String,
+}
+
 public struct ChildrenCenter has key {
     id: UID,
     region: String,
     center_address: String,
     center_phone_number: String,
-    child_id: vector<ID>,
+    child_ids: vector<ID>,
     image_blob_ids: vector<String>,
     gifts: vector<ID>,
-    proof_of_tasks: vector<ID>,
+    task_proofs: vector<ID>,
     all_gifts: vector<ID>,
     uploaded_at: u64,
     updated_at: u64,
@@ -149,10 +157,10 @@ public fun create_children_center(
         center_address: center_address,
         center_phone_number: center_phone_number,
         image_blob_ids: vector[image_blob_id],
-        child_id: vector[],
+        child_ids: vector[],
         gifts: vector[],
         all_gifts: vector[],
-        proof_of_tasks: vector[],
+        task_proofs: vector[],
         uploaded_at: cur_time,
         updated_at: cur_time,
     };
@@ -175,8 +183,8 @@ public fun submit_task(
         is_staff_matched_region(staff, center.region) && is_local_leader(staff),
         ENotAuthorized,
     );
-    let proof_id = create_proof_of_task(description, image_blob_id, actor, clock, ctx);
-    vector::push_back(&mut center.proof_of_tasks, proof_id);
+    let proof_id = create_task_proof(description, image_blob_id, actor, clock, ctx);
+    vector::push_back(&mut center.task_proofs, proof_id);
 }
 
 public fun upload_center_image(
@@ -232,17 +240,70 @@ public fun add_child(
     last_name: String,
     gender: String,
     date_of_birth: String,
+    home_address: String,
     region: String,
     avatar_blob_id: String,
-    year: u64,
+    home_blob_id: String,
+    first_guardian_full_name: String,
+    first_guardian_phone_number: String,
+    first_guardian_relation: String,
+    first_guardian_identity_card_blob_id: String,
+    second_guardian_full_name: String,
+    second_guardian_phone_number: String,
+    second_guardian_relation: String,
+    second_guardian_identity_card_blob_id: String,
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
     assert!(center.region == region, EChildNotMatchedRegion);
-    let cur_time = clock::timestamp_ms(clock);
 
+    let empty = b"".to_string();
+    assert!(
+        identity_code != empty
+            && first_name != empty
+            && last_name != empty 
+            && gender != empty
+            && date_of_birth != empty
+            && home_address != empty
+            && avatar_blob_id != empty
+            && home_blob_id != empty
+            && first_guardian_full_name != empty
+            && first_guardian_phone_number != empty
+            && first_guardian_relation != empty
+            && first_guardian_identity_card_blob_id != empty,
+        EMissingChildProfileInfo,
+    );
+
+    let cur_time = clock::timestamp_ms(clock);
     let uid = object::new(ctx);
     let id = uid.to_inner();
+
+    let mut guardian_profiles = vector[
+        ChildGuardianProfile {
+            full_name: first_guardian_full_name,
+            phone_number: first_guardian_phone_number,
+            relation: first_guardian_relation,
+            identity_card_blob_id: first_guardian_identity_card_blob_id,
+        },
+    ];
+
+    if (
+        second_guardian_full_name != empty
+        && second_guardian_phone_number != empty
+        && second_guardian_relation != empty
+        && second_guardian_identity_card_blob_id != empty
+    ) {
+        vector::push_back(
+            &mut guardian_profiles,
+            ChildGuardianProfile {
+                full_name: second_guardian_full_name,
+                phone_number: second_guardian_phone_number,
+                relation: second_guardian_relation,
+                identity_card_blob_id: second_guardian_identity_card_blob_id,
+            },
+        );
+    };
+
     let child = Child {
         id: uid,
         identity_code: identity_code,
@@ -250,16 +311,19 @@ public fun add_child(
         last_name: last_name,
         gender: gender,
         date_of_birth: date_of_birth,
+        home_address: home_address,
         region: region,
         avatar_blob_id: avatar_blob_id,
+        home_blob_id: home_blob_id,
+        guardian_profiles: guardian_profiles,
         image_blob_ids: vector[],
         upload_image_periods: vector[],
         upload_image_time: vector[],
         dynamic_fields: vector[],
         gifts: vector[],
-        books_needs: vector[init_books_need(1, year, id, ctx), init_books_need(2, year, id, ctx)],
-        meal_need: init_meal_need(year, id, ctx),
-        health_insurance_need: init_health_insurance_need(year, id, ctx),
+        books_needs: vector[init_books_need(1, id, ctx), init_books_need(2, id, ctx)],
+        meal_need: init_meal_need(id, ctx),
+        health_insurance_need: init_health_insurance_need(id, ctx),
         special_need_proposals: vector[],
         special_need_campaigns: vector[],
         uploaded_by: ctx.sender(),
@@ -269,7 +333,7 @@ public fun add_child(
 
     transfer::share_object(child);
     add_child_to_manage(manage, id, ctx);
-    vector::push_back(&mut center.child_id, id);
+    vector::push_back(&mut center.child_ids, id);
 }
 
 public fun add_string_metadata(
@@ -523,6 +587,7 @@ public fun create_child_special_need_proposal_v2(
     pool: &mut LocalPool,
     target: u64,
     description: String,
+    proof_blob_id: String,
     closed_at: u64,
     creator: address,
     clock: &Clock,
@@ -550,6 +615,7 @@ public fun create_child_special_need_proposal_v2(
             child.id.to_inner(),
             target,
             description,
+            proof_blob_id,
             closed_at,
             creator,
             clock,
@@ -615,7 +681,7 @@ public fun support_child_special_need_campaign(
 }
 
 public fun withdraw_from_special_need_campaign(
-    _: &AdminCap,
+    manage: &mut Manage,
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
     campaign: &mut SpecialNeedCampaign,
@@ -628,7 +694,8 @@ public fun withdraw_from_special_need_campaign(
         is_withdraw_proposal_matched_local_pool(proposal, local_pool),
         EWithdrawProposalNotOfCampaign,
     );
-    withdraw_from_campaign(pool, local_pool, campaign, proposal, dao, clock, ctx);
+    assert!(is_admin_added(manage, ctx), ENotAuthorized);
+    withdraw_from_campaign(manage, pool, local_pool, campaign, proposal, dao, clock, ctx);
 }
 
 public fun create_special_need_withdraw_proposal(
@@ -727,6 +794,7 @@ public fun create_child_books_need_withdraw_proposal_v2(
     need: &mut BooksNeed,
     child: &mut Child,
     description: String,
+    proof_blob_id: String,
     closed_at: u64,
     creator: address,
     clock: &Clock,
@@ -746,6 +814,7 @@ public fun create_child_books_need_withdraw_proposal_v2(
         pool,
         local_pool,
         description,
+        proof_blob_id,
         closed_at,
         creator,
         clock,
@@ -754,7 +823,7 @@ public fun create_child_books_need_withdraw_proposal_v2(
 }
 
 public fun withdraw_from_books_need_proposal(
-    _: &AdminCap,
+    manage: &mut Manage,
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
     need: &mut BooksNeed,
@@ -767,11 +836,12 @@ public fun withdraw_from_books_need_proposal(
         is_withdraw_proposal_matched_local_pool(proposal, local_pool),
         EWithdrawProposalNotOfCampaign,
     );
-    withdraw_from_books_need(pool, local_pool, need, proposal, dao, clock, ctx);
+    assert!(is_admin_added(manage, ctx), ENotAuthorized);
+    withdraw_from_books_need(manage, pool, local_pool, need, proposal, dao, clock, ctx);
 }
 
 public fun withdraw_from_health_insurance_need_proposal(
-    _: &AdminCap,
+    manage: &mut Manage,
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
     need: &mut HealthInsuranceNeed,
@@ -784,7 +854,9 @@ public fun withdraw_from_health_insurance_need_proposal(
         is_withdraw_proposal_matched_local_pool(proposal, local_pool),
         EWithdrawProposalNotOfCampaign,
     );
-    withdraw_from_health_insurance_need(pool, local_pool, need, proposal, dao, clock, ctx);
+    assert!(is_admin_added(manage, ctx), ENotAuthorized);
+
+    withdraw_from_health_insurance_need(manage, pool, local_pool, need, proposal, dao, clock, ctx);
 }
 
 public fun create_child_health_insurance_need_withdraw_proposal(
@@ -824,6 +896,7 @@ public fun create_child_health_insurance_need_withdraw_proposal_v2(
     need: &mut HealthInsuranceNeed,
     child: &mut Child,
     description: String,
+    proof_blob_id: String,
     closed_at: u64,
     creator: address,
     clock: &Clock,
@@ -843,6 +916,7 @@ public fun create_child_health_insurance_need_withdraw_proposal_v2(
         pool,
         local_pool,
         description,
+        proof_blob_id,
         closed_at,
         creator,
         clock,
@@ -879,6 +953,7 @@ public fun create_child_meal_need_withdraw_proposal_v2(
     need: &mut MealNeed,
     child: &mut Child,
     description: String,
+    proof_blob_id: String,
     closed_at: u64,
     creator: address,
     clock: &Clock,
@@ -898,6 +973,7 @@ public fun create_child_meal_need_withdraw_proposal_v2(
         pool,
         local_pool,
         description,
+        proof_blob_id,
         closed_at,
         creator,
         clock,
@@ -906,7 +982,7 @@ public fun create_child_meal_need_withdraw_proposal_v2(
 }
 
 public fun withdraw_from_meal_need_proposal(
-    _: &AdminCap,
+    manage: &mut Manage,
     pool: &mut VndPool,
     local_pool: &mut LocalPool,
     need: &mut MealNeed,
@@ -919,7 +995,9 @@ public fun withdraw_from_meal_need_proposal(
         is_withdraw_proposal_matched_local_pool(proposal, local_pool),
         EWithdrawProposalNotOfCampaign,
     );
-    withdraw_from_meal_need(pool, local_pool, need, proposal, dao, clock, ctx);
+    assert!(is_admin_added(manage, ctx), ENotAuthorized);
+
+    withdraw_from_meal_need(manage, pool, local_pool, need, proposal, dao, clock, ctx);
 }
 
 public fun confirm_provide_meal_for_child(
@@ -955,6 +1033,70 @@ public fun confirm_provide_meal_for_child_v2(
     let cur_time = clock::timestamp_ms(clock);
     confirm_provide_meal_v2(need, image_blob_id, provide_date, actor, cur_time);
     child.updated_at = cur_time;
+}
+
+public fun update_child_books_need(
+    manage: &mut Manage,
+    staff: &mut StaffNFT,
+    child: &mut Child,
+    need: &mut BooksNeed,
+    year: u64,
+    value: u64,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    assert!(
+        is_staff_matched_region(staff, child.region) && is_local_leader(staff) && is_leader_added(manage, ctx),
+        ENotAuthorized,
+    );
+    let need_id = get_books_need_id(need);
+    let (need_found, _) = vector::index_of(&child.books_needs, &need_id);
+    assert!(need_found, ENeedNotExist);
+
+    update_books_need(need, year, value);
+    child.updated_at = clock::timestamp_ms(clock);
+}
+
+public fun update_child_meal_need(
+    manage: &mut Manage,
+    staff: &mut StaffNFT,
+    child: &mut Child,
+    need: &mut MealNeed,
+    year: u64,
+    value: u64,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    assert!(
+        is_staff_matched_region(staff, child.region) && is_local_leader(staff) && is_leader_added(manage, ctx),
+        ENotAuthorized,
+    );
+    let need_id = get_meal_need_id(need);
+    assert!(need_id == child.meal_need, ENeedNotExist);
+
+    update_meal_need(need, year, value);
+    child.updated_at = clock::timestamp_ms(clock);
+}
+
+public fun update_child_health_insurance_need(
+    manage: &mut Manage,
+    staff: &mut StaffNFT,
+    child: &mut Child,
+    need: &mut HealthInsuranceNeed,
+    year: u64,
+    value: u64,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    assert!(
+        is_staff_matched_region(staff, child.region) && is_local_leader(staff) && is_leader_added(manage, ctx),
+        ENotAuthorized,
+    );
+    let need_id = get_health_insurance_need_id(need);
+    assert!(need_id == child.health_insurance_need, ENeedNotExist);
+
+    update_health_insurance_need(need, year, value);
+    child.updated_at = clock::timestamp_ms(clock);
 }
 
 public(package) fun add_gift_to_child(child: &mut Child, center: &mut ChildrenCenter, id: ID) {

@@ -4,23 +4,19 @@ use raise_child::manage::{
     Manage,
     add_volunteer_to_manage,
     add_local_leader_to_manage,
-    add_children_center_to_manage,
     add_temporary_children_center,
     is_local_region_added,
     is_center_status_created,
-    is_leader_added,
     mint_admin_nft,
     burn_register_volunteer_cap,
     burn_register_local_leader_cap,
     burn_register_admin_cap,
     RegisterVolunteerCap,
     RegisterLocalLeaderCap,
-    RegisterAdminCap,
-    UploadCenterCap
+    RegisterAdminCap
 };
 use raise_child::pool::{VndPool, LocalPool, add_leader_to_pool};
-use std::string::{Self, String, utf8};
-use std::u64::to_string;
+use std::string::String;
 use sui::clock::{Self, Clock};
 use sui::url::{Url, new_unsafe_from_bytes};
 
@@ -65,18 +61,20 @@ fun is_staff_info_enough(
     date_of_birth != empty && phone_number != empty && email != empty
 }
 
-fun get_role(is_staff: bool): String {
-    let role_bytes = if (is_staff) b"Staff" else b"Local Leader";
+fun get_role(is_leader: bool): String {
+    let role_bytes = if (is_leader) b"Local Leader" else b"Volunteer";
     role_bytes.to_string()
 }
 
-fun get_nft_name(is_staff: bool): String {
-    let name_bytes = if (is_staff) b"RaiseChild Staff NFT" else b"RaiseChiild Local Leader NFT";
+fun get_nft_name(is_leader: bool): String {
+    let name_bytes = if (is_leader) b"AgroTrust Local Leader NFT" else b"AgroTrust Volunteer NFT";
     name_bytes.to_string()
 }
 
-fun get_nft_url_bytes(is_staff: bool): vector<u8> {
-    if (is_staff) b"some-link" else b"some-link"
+fun get_nft_url_bytes(is_leader: bool): vector<u8> {
+    if (is_leader)
+        b"https://thumbs.dreamstime.com/b/leader-icon-vector-male-public-speaker-person-symbol-leadership-raised-hand-glyph-pictogram-illustration-117769150.jpg"
+    else b"https://www.clipartmax.com/png/middle/96-967024_picture-volunteer-icon-png.png"
 }
 
 public fun register_staff(
@@ -121,12 +119,12 @@ public fun register_staff(
     let url_bytes: vector<u8>;
 
     if (role == volunteer_role) {
-        name_bytes = b"RaiseChild Volunteer NFT";
+        name_bytes = b"Agro Volunteer NFT";
         url_bytes = b"some-link";
         add_volunteer_to_manage(manage, staff_id.to_inner(), ctx);
     } else {
         assert!(!is_local_region_added(manage, region), ERegionAdded);
-        name_bytes = b"RaiseChild Local Leader NFT";
+        name_bytes = b"Agro Local Leader NFT";
         url_bytes = b"some-link";
         add_local_leader_to_manage(manage, staff_id.to_inner(), region, ctx);
     };
@@ -228,7 +226,7 @@ public fun register_volunteer(
     let nft = StaffNFT {
         id: object::new(ctx),
         owner: sender,
-        role: get_role(true),
+        role: get_role(false),
         identity_code: identity_code,
         identity_card_blob_id: identity_card_blob_id,
         avatar_blob_id: avatar_blob_id,
@@ -240,9 +238,9 @@ public fun register_volunteer(
         phone_number: phone_number,
         email: email,
         uploaded_at: clock::timestamp_ms(clock),
-        name: get_nft_name(true),
+        name: get_nft_name(false),
         url: new_unsafe_from_bytes(
-            get_nft_url_bytes(true),
+            get_nft_url_bytes(false),
         ),
     };
 
@@ -288,7 +286,7 @@ public fun register_local_leader(
     let nft = StaffNFT {
         id: object::new(ctx),
         owner: sender,
-        role: get_role(false),
+        role: get_role(true),
         identity_code: identity_code,
         identity_card_blob_id: identity_card_blob_id,
         avatar_blob_id: avatar_blob_id,
@@ -300,9 +298,9 @@ public fun register_local_leader(
         phone_number: phone_number,
         email: email,
         uploaded_at: clock::timestamp_ms(clock),
-        name: get_nft_name(false),
+        name: get_nft_name(true),
         url: new_unsafe_from_bytes(
-            get_nft_url_bytes(false),
+            get_nft_url_bytes(true),
         ),
     };
 

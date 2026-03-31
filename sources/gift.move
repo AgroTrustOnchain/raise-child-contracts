@@ -92,6 +92,7 @@ public fun create_gift_for_child(
     };
 
     create_tx_record(
+        manage,
         amount,
         b"VND".to_string(),
         b"Give gift".to_string(),
@@ -164,6 +165,7 @@ public fun create_gift_for_center(
     };
 
     create_tx_record(
+        manage,
         amount,
         b"VND".to_string(),
         b"Give gift".to_string(),

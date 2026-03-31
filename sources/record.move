@@ -1,5 +1,6 @@
 module raise_child::record;
 
+use raise_child::manage::{Manage, add_transaction_to_manage};
 use std::string::String;
 use sui::clock::{Self, Clock};
 use sui::event::{Self, emit};
@@ -79,6 +80,7 @@ public struct TransactionRecordEvent has copy, drop {
 // }
 
 public(package) fun create_tx_record(
+    manage: &mut Manage,
     amount: u64,
     coin_type: String,
     action_type: String,
@@ -103,8 +105,9 @@ public(package) fun create_tx_record(
         created_at: cur_time,
     };
 
+    let record_id = record.id.to_inner();
     event::emit(TransactionRecordEvent {
-        id: record.id.to_inner(),
+        id: record_id,
         actor_address: actor,
         action_type: action_type,
         pool_name: pool_name,
@@ -115,9 +118,11 @@ public(package) fun create_tx_record(
     });
 
     transfer::transfer(record, actor);
+    add_transaction_to_manage(manage, record_id);
 }
 
 public(package) fun create_tx_record_v2(
+    manage: &mut Manage,
     amount: u64,
     coin_type: String,
     action_type: String,
@@ -155,10 +160,12 @@ public(package) fun create_tx_record_v2(
     });
 
     transfer::transfer(record, owner);
+    add_transaction_to_manage(manage, id);
     id
 }
 
 public(package) fun create_tx_record_with_address(
+    manage: &mut Manage,
     amount: u64,
     coin_type: String,
     action_type: String,
@@ -182,8 +189,9 @@ public(package) fun create_tx_record_with_address(
         created_at: cur_time,
     };
 
+    let record_id = record.id.to_inner();
     event::emit(TransactionRecordEvent {
-        id: record.id.to_inner(),
+        id: record_id,
         actor_address: owner,
         action_type: action_type,
         pool_name: pool_name,
@@ -194,9 +202,11 @@ public(package) fun create_tx_record_with_address(
     });
 
     transfer::transfer(record, owner);
+    add_transaction_to_manage(manage, record_id);
 }
 
 public(package) fun create_tx_record_with_address_v2(
+    manage: &mut Manage,
     amount: u64,
     coin_type: String,
     action_type: String,
@@ -234,5 +244,6 @@ public(package) fun create_tx_record_with_address_v2(
     });
 
     transfer::transfer(record, owner);
+    add_transaction_to_manage(manage, id);
     id
 }

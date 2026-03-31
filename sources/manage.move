@@ -35,6 +35,7 @@ public struct Manage has key {
     created_centers: vector<ID>,
     donor_nfts: vector<ID>,
     donor_ids: vector<address>,
+    transaction_records: vector<ID>,
 }
 
 public struct AdminNFT has key {
@@ -79,9 +80,27 @@ public struct RegisterAdminCap has key {
 }
 
 fun init(ctx: &mut TxContext) {
+    let manage = Manage {
+        id: object::new(ctx),
+        admin_ids: vector[],
+        admin_nfts: vector[],
+        child_ids: vector[],
+        volunteer_nfts: vector[],
+        volunteer_ids: vector[],
+        local_leader_nfts: vector[],
+        local_leader_ids: vector[],
+        local_regions: vector[],
+        children_centers: vector[],
+        center_confirm_statuses: vector[],
+        created_centers: vector[],
+        donor_nfts: vector[],
+        donor_ids: vector[],
+        transaction_records: vector[],
+    };
+
     let sender = ctx.sender();
     let empty = b"Empty".to_string();
-    let nft = AdminNFT {
+    let nft_1 = AdminNFT {
         id: object::new(ctx),
         owner: sender,
         identity_code: empty,
@@ -100,32 +119,78 @@ fun init(ctx: &mut TxContext) {
         ),
     };
 
-    let manage = Manage {
+    let nft_2 = AdminNFT {
         id: object::new(ctx),
-        admin_ids: vector[],
-        admin_nfts: vector[],
-        child_ids: vector[],
-        volunteer_nfts: vector[],
-        volunteer_ids: vector[],
-        local_leader_nfts: vector[],
-        local_leader_ids: vector[],
-        local_regions: vector[],
-        children_centers: vector[],
-        center_confirm_statuses: vector[],
-        created_centers: vector[],
-        donor_nfts: vector[],
-        donor_ids: vector[],
+        owner: sender,
+        identity_code: empty,
+        identity_card_blob_id: empty,
+        avatar_blob_id: empty,
+        first_name: empty,
+        last_name: empty,
+        gender: empty,
+        date_of_birth: empty,
+        phone_number: empty,
+        email: empty,
+        uploaded_at: 0,
+        name: get_admin_nft_name(),
+        url: new_unsafe_from_bytes(
+            get_admin_nft_url_bytes(),
+        ),
     };
 
-    transfer::transfer(nft, sender);
+    let nft_3 = AdminNFT {
+        id: object::new(ctx),
+        owner: sender,
+        identity_code: empty,
+        identity_card_blob_id: empty,
+        avatar_blob_id: empty,
+        first_name: empty,
+        last_name: empty,
+        gender: empty,
+        date_of_birth: empty,
+        phone_number: empty,
+        email: empty,
+        uploaded_at: 0,
+        name: get_admin_nft_name(),
+        url: new_unsafe_from_bytes(
+            get_admin_nft_url_bytes(),
+        ),
+    };
+
+    // 3 pre-defined admins
+    transfer::transfer(nft_1, sender);
+    transfer::transfer(nft_2, sender);
+    transfer::transfer(nft_3, sender);
+
+    // 3 update caps
     transfer::transfer(
         UpdateAdminInfoAfterPublishCap {
             id: object::new(ctx),
         },
         sender,
     );
-    transfer::transfer(AdminCap { id: object::new(ctx) }, sender);
-    transfer::transfer(AdminCap { id: object::new(ctx) }, sender);
+
+    transfer::transfer(
+        UpdateAdminInfoAfterPublishCap {
+            id: object::new(ctx),
+        },
+        sender,
+    );
+
+    transfer::transfer(
+        UpdateAdminInfoAfterPublishCap {
+            id: object::new(ctx),
+        },
+        sender,
+    );
+
+    // 4 admin caps: 1 kept as published wallet for background service, 3 for the admins of platform
+    transfer::transfer(AdminCap { id: object::new(ctx) }, sender); // Kept for background service
+    transfer::transfer(AdminCap { id: object::new(ctx) }, sender); // Admin 1
+    transfer::transfer(AdminCap { id: object::new(ctx) }, sender); // Admin 2
+    transfer::transfer(AdminCap { id: object::new(ctx) }, sender); // Admin 3
+
+    // Share manage object
     transfer::share_object(manage);
 }
 
@@ -329,11 +394,11 @@ public(package) fun is_admin_added_v2(manage: &mut Manage, sender: address): boo
 }
 
 fun get_admin_nft_name(): String {
-    b"RaiseChild Admin NFT".to_string()
+    b"AgroTrust Admin NFT".to_string()
 }
 
 fun get_admin_nft_url_bytes(): vector<u8> {
-    b"some-link"
+    b"shttps://www.svgrepo.com/show/41173/admin-with-cogwheels.svg"
 }
 
 public(package) fun add_temporary_children_center(
@@ -370,6 +435,10 @@ public(package) fun add_children_center_to_manage(
 public(package) fun add_donor_to_manage(manage: &mut Manage, ctx: &mut TxContext) {
     assert!(!is_donor_added(manage, ctx), EDonorExisted);
     vector::push_back(&mut manage.donor_ids, ctx.sender());
+}
+
+public(package) fun add_transaction_to_manage(manage: &mut Manage, transaction_id: ID) {
+    vector::push_back(&mut manage.transaction_records, transaction_id);
 }
 
 public(package) fun add_donor_to_manage_v2(manage: &mut Manage, sender: address) {

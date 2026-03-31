@@ -4,7 +4,7 @@ use std::string::String;
 use sui::clock::{Self, Clock};
 use sui::object;
 
-public struct ProofOfTask has key {
+public struct TaskProof has key {
     id: UID,
     actor: address,
     description: String,
@@ -12,14 +12,14 @@ public struct ProofOfTask has key {
     uploaded_at: u64,
 }
 
-public(package) fun create_proof_of_task(
+public(package) fun create_task_proof(
     description: String,
     image_blob_id: String,
     actor: address,
     clock: &Clock,
     ctx: &mut TxContext,
 ): ID {
-    let proof = ProofOfTask {
+    let proof = TaskProof {
         id: object::new(ctx),
         actor: actor,
         description: description,
